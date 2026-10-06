@@ -1,0 +1,4015 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>共円</title>
+<meta name="description" content="格子点に石を置き合い、4つの石が同一円周（または一直線）に乗ったら指摘する数学ゲーム「共円」。CPU対戦・友人との対戦・問題モード。">
+
+<!--
+  =====================================================================
+  共円（きょうえん）オンライン対戦アプリ
+  =====================================================================
+  セットアップ手順:
+  1. https://console.firebase.google.com/ で新規プロジェクトを作成
+  2. 左メニュー「構築」→「Realtime Database」を作成（テストモードでOK。
+     このゲームはログイン機能を持たないカジュアル対戦用です）
+  3. プロジェクトの設定（歯車アイコン）→「マイアプリ」→ウェブアプリを追加
+  4. 表示された firebaseConfig の内容を、下の FIREBASE_CONFIG に貼り付ける
+  5. Realtime Database の「ルール」タブを以下にして公開:
+       {
+         "rules": {
+           "rooms": {
+             "$roomId": { ".read": true, ".write": true }
+           }
+         }
+       }
+     (身内・生徒同士のカジュアル対戦を想定した簡易設定です。荒らし対策が
+      必要な場合はルールを強化してください)
+  6. このHTMLファイルをそのまま GitHub Pages 等にアップロードすれば
+     そのURLを共有して複数人でリアルタイム対戦できます。
+  =====================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;600;800&family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#101b2e;
+    --bg-panel:#152239;
+    --bg-panel-raised:#1a2a45;
+    --grid-line:#28405f;
+    --grid-line-axis:#3a5a82;
+    --grid-dot:#4a6a92;
+    --ink:#ece7da;
+    --ink-dim:#8fa0bc;
+    --ink-faint:#5c7093;
+    --border:#28405f;
+    --accent:#e8c55a;
+    --accent-dim:#7a6a38;
+    --danger:#e8563e;
+    --safe:#7ed9a8;
+    --radius:3px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans JP',sans-serif;
+    min-height:100vh;
+    line-height:1.6;
+  }
+  #root{min-height:100vh;}
+  h1,h2,h3{
+    font-family:'Shippori Mincho',serif;
+    font-weight:600;
+    margin:0;
+    letter-spacing:.02em;
+  }
+  button{
+    font-family:inherit;
+    cursor:pointer;
+  }
+  input,select{
+    font-family:inherit;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  /* ---------- layout shells ---------- */
+  .screen{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .topbar{
+    width:100%;
+    max-width:1080px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    padding:20px 20px 0;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .brand-mark{
+    font-family:'Shippori Mincho',serif;
+    font-size:28px;
+    font-weight:800;
+    color:var(--ink);
+    letter-spacing:.08em;
+  }
+  .brand-sub{
+    font-size:12px;
+    color:var(--ink-faint);
+  }
+
+  /* ---------- home screen ---------- */
+  .home-wrap{
+    width:100%;
+    max-width:640px;
+    padding:60px 24px 40px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+  }
+  .home-title{
+    font-size:56px;
+    font-weight:800;
+    letter-spacing:.12em;
+  }
+  .home-tagline{
+    margin-top:14px;
+    color:var(--ink-dim);
+    font-size:15px;
+    max-width:38em;
+  }
+  .home-diagram{
+    margin:36px 0;
+  }
+  .home-actions{
+    width:100%;
+    display:flex;
+    gap:16px;
+    margin-top:12px;
+    flex-wrap:wrap;
+    justify-content:center;
+  }
+  .card{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:20px;
+  }
+  .card-title{
+    font-size:14px;
+    color:var(--ink-dim);
+    margin-bottom:14px;
+  }
+  .home-panel{
+    width:100%;
+    max-width:380px;
+    text-align:left;
+  }
+  .field{
+    margin-bottom:12px;
+  }
+  .field label{
+    display:block;
+    font-size:12px;
+    color:var(--ink-faint);
+    margin-bottom:6px;
+  }
+  .field input,.field select{
+    width:100%;
+    background:var(--bg);
+    border:1px solid var(--border);
+    color:var(--ink);
+    padding:9px 10px;
+    border-radius:var(--radius);
+    font-size:15px;
+  }
+  .field input:focus,.field select:focus{
+    outline:1px solid var(--accent);
+    outline-offset:0;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    border:1px solid var(--border);
+    background:var(--bg-panel-raised);
+    color:var(--ink);
+    padding:10px 18px;
+    border-radius:var(--radius);
+    font-size:14px;
+    font-weight:500;
+    transition:filter .12s ease, transform .05s ease;
+  }
+  .btn:hover{filter:brightness(1.15);}
+  .btn:active{transform:translateY(1px);}
+  .btn:disabled{opacity:.35;cursor:not-allowed;filter:none;}
+  .btn-primary{
+    background:var(--accent);
+    color:#20180a;
+    border-color:var(--accent);
+    font-weight:700;
+  }
+  .btn-danger{
+    background:var(--danger);
+    color:#2a0f0a;
+    border-color:var(--danger);
+    font-weight:700;
+  }
+  .btn-block{width:100%;}
+  .btn-ghost{
+    background:transparent;
+  }
+  .btn-sm{padding:6px 12px;font-size:12.5px;}
+  .error-text{
+    color:var(--danger);
+    font-size:13px;
+    margin-top:8px;
+  }
+  .hint-text{
+    color:var(--ink-faint);
+    font-size:12px;
+    margin-top:8px;
+  }
+
+  /* ---------- lobby ---------- */
+  .lobby-wrap{
+    width:100%;
+    max-width:520px;
+    padding:60px 24px 40px;
+  }
+  .room-code-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding-bottom:18px;
+    border-bottom:1px solid var(--border);
+    margin-bottom:18px;
+  }
+  .room-code{
+    font-size:34px;
+    font-weight:600;
+    letter-spacing:.18em;
+  }
+  .room-meta{
+    color:var(--ink-faint);
+    font-size:12.5px;
+    margin-top:2px;
+  }
+  .player-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:9px 2px;
+    border-bottom:1px solid rgba(40,64,95,.5);
+  }
+  .player-row:last-child{border-bottom:none;}
+  .dot{
+    width:11px;height:11px;border-radius:50%;
+    flex-shrink:0;
+    box-shadow:0 0 0 2px rgba(0,0,0,.25) inset;
+  }
+  .player-name{flex:1;font-size:14.5px;}
+  .tag{
+    font-size:11px;
+    color:var(--ink-faint);
+    border:1px solid var(--border);
+    padding:1px 7px;
+    border-radius:10px;
+  }
+  .tag-elim{color:var(--danger);border-color:var(--danger);}
+  .empty-slot{color:var(--ink-faint);font-size:13.5px;font-style:normal;}
+
+  /* ---------- game screen ---------- */
+  .game-wrap{
+    width:100%;
+    max-width:1080px;
+    padding:20px 20px 40px;
+    display:grid;
+    grid-template-columns:1fr 300px;
+    gap:20px;
+  }
+  @media (max-width:840px){
+    .game-wrap{grid-template-columns:1fr;}
+  }
+  .board-col{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .turn-banner{
+    width:100%;
+    padding:12px 16px;
+    border-radius:var(--radius);
+    border:1px solid var(--border);
+    background:var(--bg-panel);
+    margin-bottom:14px;
+    font-size:14.5px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .turn-banner.mine{border-color:var(--accent);}
+  .board-svg-wrap{
+    width:100%;
+    max-width:640px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px;
+  }
+  .board-svg{
+    width:100%;
+    height:auto;
+    display:block;
+  }
+  .lattice-dot{fill:var(--grid-dot);}
+  .lattice-hit{fill:transparent;cursor:pointer;}
+  .lattice-hit.disabled{cursor:default;}
+  .stone-shadow{opacity:.35;}
+  .mode-bar{
+    width:100%;
+    max-width:640px;
+    display:flex;
+    gap:10px;
+    margin-top:14px;
+    flex-wrap:wrap;
+  }
+  .selection-info{
+    width:100%;
+    max-width:640px;
+    margin-top:12px;
+    font-size:13px;
+    color:var(--ink-dim);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .timer-bar-wrap{
+    width:100%;
+    height:7px;
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:4px;
+    overflow:hidden;
+    margin-bottom:12px;
+  }
+  .timer-bar{
+    height:100%;
+    transition:width 0.95s linear, background-color 0.3s ease;
+  }
+  .accuser-spotlight{
+    width:100%;
+    max-width:640px;
+    text-align:center;
+    padding:14px 10px;
+    margin-bottom:12px;
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    background:var(--bg-panel-raised);
+  }
+  .accuser-spotlight .name{
+    font-family:'Shippori Mincho',serif;
+    font-size:30px;
+    font-weight:700;
+    color:var(--accent);
+    letter-spacing:.04em;
+  }
+  .accuser-spotlight .sub{
+    font-size:12px;
+    color:var(--ink-faint);
+    margin-top:4px;
+  }
+  .missed-panel{
+    width:100%;
+    margin-top:14px;
+    padding-top:14px;
+    border-top:1px solid var(--border);
+  }
+  .modal-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(8,14,24,.78);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  .modal-card{
+    background:var(--bg-panel-raised);
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    padding:28px 22px;
+    width:100%;
+    max-width:380px;
+    text-align:center;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);
+  }
+  .modal-title{
+    font-family:'Shippori Mincho',serif;
+    font-size:24px;
+    font-weight:700;
+    color:var(--ink);
+    margin-bottom:18px;
+  }
+  .modal-buttons{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  /* --- 円を描くアニメーション（指摘成立時） --- */
+  .draw-circle{
+    animation:drawCircle 1s ease-out forwards;
+  }
+  @keyframes drawCircle{
+    from{stroke-dashoffset:var(--circ);}
+    to{stroke-dashoffset:0;}
+  }
+  .point-pop{
+    transform-box:fill-box;
+    transform-origin:center;
+    animation:pointPop .45s ease-out backwards;
+  }
+  @keyframes pointPop{
+    0%{transform:scale(1);}
+    50%{transform:scale(1.55);}
+    100%{transform:scale(1);}
+  }
+
+  /* --- 残り時間わずかの緊迫演出 --- */
+  .timer-bar.urgent{
+    animation:urgentPulse .8s ease-in-out infinite;
+  }
+  @keyframes urgentPulse{
+    0%,100%{opacity:1;}
+    50%{opacity:.35;}
+  }
+  .urgent-vignette{
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    z-index:60;
+    box-shadow:inset 0 0 90px 20px rgba(232,86,62,.55);
+    animation:urgentPulse .8s ease-in-out infinite;
+  }
+  .urgent-count{
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    font-family:'Shippori Mincho',serif;
+    font-size:min(30vw,160px);
+    font-weight:800;
+    color:rgba(232,86,62,.28);
+    pointer-events:none;
+    z-index:59;
+  }
+
+  /* --- ヒートマップ凡例 --- */
+  .legend-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--ink-faint);
+    margin-top:8px;
+    flex-wrap:wrap;
+  }
+  .legend-swatch{
+    width:13px;height:13px;border-radius:50%;display:inline-block;
+  }
+
+  /* --- リプレイ・見逃し共円のステッパー --- */
+  .stepper-bar{
+    width:100%;
+    max-width:640px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-top:12px;
+    flex-wrap:wrap;
+    padding:10px 12px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+  }
+  .stepper-label{
+    font-size:13px;
+    color:var(--ink-dim);
+    min-width:110px;
+  }
+  .stepper-bar input[type=range]{
+    flex:1;
+    min-width:140px;
+    accent-color:var(--accent);
+  }
+
+  /* --- パズルモード --- */
+  .puzzle-prompt{
+    width:100%;
+    max-width:640px;
+    padding:14px 16px;
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    background:var(--bg-panel);
+    margin-bottom:14px;
+    font-size:14.5px;
+  }
+  .puzzle-score{
+    font-family:'IBM Plex Mono',monospace;
+    color:var(--accent);
+    font-weight:600;
+  }
+
+  .result-flash-overlay{
+    position:fixed;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:200;
+    pointer-events:none;
+    background:rgba(8,14,24,.4);
+    animation:flashFade 1.8s ease forwards;
+  }
+  .result-flash-text{
+    font-family:'Shippori Mincho',serif;
+    font-weight:800;
+    font-size:min(18vw,72px);
+    letter-spacing:.06em;
+    text-shadow:0 4px 28px rgba(0,0,0,.65);
+    animation:flashPop .5s cubic-bezier(.34,1.56,.64,1);
+  }
+  .result-flash-text.hit{ color:var(--safe); }
+  .result-flash-text.miss{ color:var(--danger); }
+  @keyframes flashPop{
+    0%{transform:scale(.3);opacity:0;}
+    55%{transform:scale(1.18);opacity:1;}
+    100%{transform:scale(1);opacity:1;}
+  }
+  @keyframes flashFade{
+    0%{opacity:1;}
+    72%{opacity:1;}
+    100%{opacity:0;}
+  }
+  @media (orientation:landscape) and (min-width:820px) and (max-height:900px){
+    .home-wrap{padding:22px 24px 24px;}
+    .home-title{font-size:44px;}
+    .lobby-wrap{padding:26px 24px 24px;}
+    .game-wrap{
+      padding:14px 22px 22px;
+      grid-template-columns:1fr 340px;
+      align-items:start;
+      max-width:1200px;
+    }
+    .board-svg-wrap{max-width:720px;}
+    .panel-col{max-height:calc(100vh - 60px);overflow-y:auto;}
+  }
+  .judge-result{
+    font-weight:700;
+  }
+  .judge-result.yes{color:var(--danger);}
+  .judge-result.no{color:var(--safe);}
+
+  .panel-col{display:flex;flex-direction:column;gap:16px;}
+  .panel{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 16px;
+  }
+  .panel h3{font-size:13px;color:var(--ink-faint);font-weight:500;margin-bottom:10px;font-family:'IBM Plex Sans JP',sans-serif;letter-spacing:.04em;}
+  .log-feed{
+    max-height:360px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    font-size:12.8px;
+  }
+  .log-item{
+    padding-bottom:8px;
+    border-bottom:1px solid rgba(40,64,95,.5);
+    color:var(--ink-dim);
+  }
+  .log-item:last-child{border-bottom:none;padding-bottom:0;}
+  .log-item.eliminate{color:var(--danger);}
+  .log-item.win{color:var(--accent);font-weight:600;}
+  .log-item.fail{color:var(--ink-faint);}
+
+  .toast{
+    position:fixed;
+    bottom:22px;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--bg-panel-raised);
+    border:1px solid var(--accent);
+    color:var(--ink);
+    padding:12px 20px;
+    border-radius:var(--radius);
+    font-size:14px;
+    box-shadow:0 6px 24px rgba(0,0,0,.4);
+    z-index:50;
+    max-width:90vw;
+    text-align:center;
+  }
+  .winner-banner{
+    width:100%;
+    max-width:640px;
+    background:var(--bg-panel-raised);
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    padding:20px;
+    text-align:center;
+    margin-bottom:14px;
+  }
+  .winner-banner .big{
+    font-family:'Shippori Mincho',serif;
+    font-size:24px;
+    font-weight:700;
+    color:var(--accent);
+  }
+  .link-row{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .link-row input{
+    flex:1;
+    background:var(--bg);
+    border:1px solid var(--border);
+    color:var(--ink-dim);
+    padding:8px 10px;
+    border-radius:var(--radius);
+    font-size:12.5px;
+  }
+  .setup-wrap{
+    max-width:560px;
+    margin:60px auto;
+    padding:0 24px;
+  }
+  .setup-wrap ol{padding-left:1.3em;}
+  .setup-wrap li{margin-bottom:8px;font-size:14px;color:var(--ink-dim);}
+  .setup-wrap pre{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:12px;
+    font-size:12px;
+    overflow-x:auto;
+    color:var(--ink-dim);
+  }
+  a{color:var(--accent);}
+
+  @keyframes pulseRing{
+    0%{opacity:.9;r:15;}
+    70%{opacity:0;r:26;}
+    100%{opacity:0;r:26;}
+  }
+  .pulse-ring{
+    fill:none;
+    stroke:var(--accent);
+    stroke-width:2;
+    animation:pulseRing 1.6s ease-out infinite;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.26/Tone.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+
+<script>
+const {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback
+} = React;
+
+/* =====================================================================
+   ここを書き換えてください（Firebase コンソールの「マイアプリ」から取得）
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firegroundio.com",
+  // 実際はコンソール表示の値に置き換え
+  projectId: "YOUR_PROJECT"
+};
+const CONFIG_IS_PLACEHOLDER = FIREBASE_CONFIG.apiKey === "YOUR_API_KEY";
+
+/* =====================================================================
+   定数
+   ===================================================================== */
+const PLAYER_COLORS = ["#e8563e", "#4fa8d8", "#7ed9a8", "#e8c55a", "#c77dd1"];
+const MAX_PLAYERS = 5;
+const MIN_PLAYERS = 2;
+const BOARD_PRESETS = [{
+  key: "small",
+  label: "小盤（9×9）",
+  radius: 4
+}, {
+  key: "medium",
+  label: "中盤（11×11）",
+  radius: 5
+}, {
+  key: "large",
+  label: "大盤（15×15）",
+  radius: 7
+}];
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 0/O, 1/I を除外
+const LOG_LIMIT = 60;
+
+/* =====================================================================
+   幾何ユーティリティ
+   ===================================================================== */
+// 4x4 行列式（厳密な整数演算。座標は格子点なので誤差なし）
+function det4(m) {
+  function det(mat) {
+    const n = mat.length;
+    if (n === 1) return mat[0][0];
+    if (n === 2) return mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0];
+    let sum = 0;
+    for (let col = 0; col < n; col++) {
+      const minor = mat.slice(1).map(row => row.filter((_, j) => j !== col));
+      sum += (col % 2 === 0 ? 1 : -1) * mat[0][col] * det(minor);
+    }
+    return sum;
+  }
+  return det(m);
+}
+
+// 4点が「共円」または「共線（半径無限の円とみなす）」かどうかを厳密判定
+function isKyoen(points) {
+  if (points.length !== 4) return null;
+  const m = points.map(p => [p.x, p.y, p.x * p.x + p.y * p.y, 1]);
+  return det4(m) === 0;
+}
+
+// 3点から外心・外半径を求める（表示用のプレビュー。3点が同一直線上なら null を返す）
+function circumcircle(a, b, c) {
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+  if (d === 0) return null;
+  const ux = ((a.x * a.x + a.y * a.y) * (b.y - c.y) + (b.x * b.x + b.y * b.y) * (c.y - a.y) + (c.x * c.x + c.y * c.y) * (a.y - b.y)) / d;
+  const uy = ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) / d;
+  const r = Math.hypot(a.x - ux, a.y - uy);
+  return {
+    x: ux,
+    y: uy,
+    r
+  };
+}
+
+/* =====================================================================
+   雑多なユーティリティ
+   ===================================================================== */
+function randomCode(len) {
+  let s = "";
+  for (let i = 0; i < len; i++) s += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  return s;
+}
+function randomId() {
+  return "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+function getOrCreatePlayerId() {
+  let id = localStorage.getItem("kyoen_playerId");
+  if (!id) {
+    id = randomId();
+    localStorage.setItem("kyoen_playerId", id);
+  }
+  return id;
+}
+function getSavedName() {
+  return localStorage.getItem("kyoen_playerName") || "";
+}
+function saveName(name) {
+  localStorage.setItem("kyoen_playerName", name);
+}
+function getSavedDifficulty() {
+  return localStorage.getItem("kyoen_difficulty") || "normal";
+}
+function saveDifficulty(difficulty) {
+  localStorage.setItem("kyoen_difficulty", difficulty);
+}
+const DIFFICULTY_OPTIONS = [{ key: "easy", label: "簡単" }, { key: "normal", label: "普通" }, { key: "hard", label: "難しい" }];
+const RULESET_OPTIONS = [{ key: "major", label: "メジャールール" }, { key: "nanryo", label: "南稜ローカルルール" }];
+const TIME_LIMIT_OPTIONS = [{ key: "none", label: "制限なし", seconds: null }, { key: "15", label: "15秒", seconds: 15 }, { key: "30", label: "30秒", seconds: 30 }, { key: "60", label: "60秒", seconds: 60 }];
+
+/* =====================================================================
+   Firebase 初期化 & DB フック
+   ===================================================================== */
+let db = null;
+if (!CONFIG_IS_PLACEHOLDER) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.database();
+}
+function runTx(ref, updater) {
+  return new Promise((resolve, reject) => {
+    ref.transaction(updater, (err, committed, snapshot) => {
+      if (err) reject(err);else resolve({
+        committed,
+        snapshot
+      });
+    }, false);
+  });
+}
+function useRoomState(roomId) {
+  const [state, setState] = useState(undefined); // undefined = loading, null = not found
+  useEffect(() => {
+    if (!roomId || !db) return;
+    setState(undefined);
+    const ref = db.ref("rooms/" + roomId);
+    const cb = snap => setState(snap.val());
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [roomId]);
+  return state;
+}
+
+/* =====================================================================
+   ルーム操作（すべて transaction 経由でサーバ側の状態を安全に更新）
+   ===================================================================== */
+function pushLog(room, entry) {
+  const log = (room.log || []).slice();
+  log.push(entry);
+  while (log.length > LOG_LIMIT) log.shift();
+  return log;
+}
+function nextActiveTurn(turnOrder, players, fromIdx) {
+  const n = turnOrder.length;
+  for (let step = 1; step <= n; step++) {
+    const idx = (fromIdx + step) % n;
+    const pid = turnOrder[idx];
+    if (players[pid] && players[pid].active) return pid;
+  }
+  return null;
+}
+async function createRoom(hostName, presetKey, maxPlayers, ruleset, timeLimit) {
+  const myId = getOrCreatePlayerId();
+  const preset = BOARD_PRESETS.find(p => p.key === presetKey) || BOARD_PRESETS[1];
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const code = randomCode(5);
+    const ref = db.ref("rooms/" + code);
+    const initial = {
+      meta: {
+        createdAt: Date.now(),
+        boardRadius: preset.radius,
+        maxPlayers: maxPlayers,
+        hostId: myId,
+        status: "waiting",
+        ruleset: ruleset || "major",
+        timeLimit: timeLimit || null
+      },
+      players: {
+        [myId]: {
+          name: hostName,
+          color: PLAYER_COLORS[0],
+          order: 0,
+          active: true
+        }
+      },
+      turnOrder: [],
+      currentTurn: null,
+      stones: [],
+      lastStoneSeq: -1,
+      log: [],
+      winner: null
+    };
+    const {
+      committed
+    } = await runTx(ref, current => current === null ? initial : undefined);
+    if (committed) return code;
+  }
+  throw new Error("ROOM_CODE_EXHAUSTED");
+}
+async function joinRoom(roomId, name) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  let outcome = "ok";
+  const {
+    committed,
+    snapshot
+  } = await runTx(ref, room => {
+    if (room === null) {
+      outcome = "not_found";
+      return undefined;
+    }
+    if (room.players && room.players[myId]) {
+      outcome = "already_in";
+      return room; // 既に参加済みなら何もしない
+    }
+    if (room.meta.status !== "waiting") {
+      outcome = "already_started";
+      return undefined;
+    }
+    const count = Object.keys(room.players || {}).length;
+    if (count >= room.meta.maxPlayers) {
+      outcome = "full";
+      return undefined;
+    }
+    room.players = room.players || {};
+    room.players[myId] = {
+      name,
+      color: PLAYER_COLORS[count % PLAYER_COLORS.length],
+      order: count,
+      active: true
+    };
+    return room;
+  });
+  if (!committed && outcome === "ok") outcome = "conflict";
+  return {
+    outcome,
+    room: snapshot ? snapshot.val() : null
+  };
+}
+async function startGame(roomId) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  await runTx(ref, room => {
+    if (room === null) return undefined;
+    if (room.meta.hostId !== myId) return undefined;
+    const ids = Object.keys(room.players).sort((a, b) => room.players[a].order - room.players[b].order);
+    if (ids.length < MIN_PLAYERS) return undefined;
+    room.meta.status = "playing";
+    room.turnOrder = ids;
+    room.currentTurn = ids[0];
+    room.stones = [];
+    room.lastStoneSeq = -1;
+    room.winner = null;
+    room.log = pushLog(room, {
+      type: "start",
+      ts: Date.now()
+    });
+    return room;
+  });
+}
+async function placeStone(roomId, x, y) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  await runTx(ref, room => {
+    if (room === null) return undefined;
+    if (room.meta.status !== "playing") return undefined;
+    if (room.currentTurn !== myId) return undefined;
+    const stones = room.stones || [];
+    if (stones.some(s => s.x === x && s.y === y)) return undefined; // 既に石がある
+    const seq = stones.length;
+    stones.push({
+      x,
+      y,
+      owner: myId,
+      seq
+    });
+    room.stones = stones;
+    room.lastStoneSeq = seq;
+    room.log = pushLog(room, {
+      type: "place",
+      pid: myId,
+      name: room.players[myId].name,
+      x,
+      y,
+      ts: Date.now()
+    });
+
+    // 盤面が全て埋まったら引き分け判定
+    const r = room.meta.boardRadius;
+    const totalPoints = (2 * r + 1) * (2 * r + 1);
+    if (stones.length >= totalPoints) {
+      room.meta.status = "finished";
+      room.winner = "draw";
+      room.log = pushLog(room, {
+        type: "draw",
+        ts: Date.now()
+      });
+      return room;
+    }
+    const curIdx = room.turnOrder.indexOf(myId);
+    const next = nextActiveTurn(room.turnOrder, room.players, curIdx);
+    room.currentTurn = next;
+    return room;
+  });
+}
+async function accuse(roomId, seqList) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  let result = "error";
+  await runTx(ref, room => {
+    if (room === null) return undefined;
+    if (room.meta.status !== "playing") return undefined;
+    if (!seqList.includes(room.lastStoneSeq)) return undefined; // 直前の1手を含まない指摘は無効
+    const stones = room.stones;
+    const pts = seqList.map(seq => stones.find(s => s.seq === seq)).filter(Boolean);
+    if (pts.length !== 4) return undefined;
+    const targetSeq = room.lastStoneSeq;
+    const targetStone = stones.find(s => s.seq === targetSeq);
+    const targetPid = targetStone.owner;
+    const accuserName = room.players[myId] ? room.players[myId].name : "?";
+    const targetName = room.players[targetPid] ? room.players[targetPid].name : "?";
+    if (!isKyoen(pts)) {
+      result = "miss";
+      room.log = pushLog(room, {
+        type: "fail",
+        accuserName,
+        pts: pts.map(p => [p.x, p.y]),
+        ts: Date.now()
+      });
+      return room;
+    }
+    result = "hit";
+    room.players[targetPid].active = false;
+    room.log = pushLog(room, {
+      type: "eliminate",
+      accuserName,
+      targetName,
+      pts: pts.map(p => [p.x, p.y]),
+      ts: Date.now()
+    });
+
+    // 現在の手番が既に脱落済みなら次の生存者へ送る（保険的な再計算）
+    if (!room.players[room.currentTurn] || !room.players[room.currentTurn].active) {
+      const idx = room.turnOrder.indexOf(room.currentTurn);
+      room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx >= 0 ? idx : 0);
+    }
+    const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
+    if (activeIds.length <= 1) {
+      room.meta.status = "finished";
+      room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
+      room.log = pushLog(room, {
+        type: "win",
+        name: activeIds.length === 1 ? room.players[activeIds[0]].name : null,
+        ts: Date.now()
+      });
+    }
+    return room;
+  });
+  return result;
+}
+
+// 南稜ローカルルール：直前の一手に限らず、盤上のどの4点でも指摘できる。
+// 成立したら指摘した本人がその場で勝利する（脱落制ではない）
+async function accuseNanryo(roomId, seqList) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  let result = "error";
+  await runTx(ref, room => {
+    if (room === null) return undefined;
+    if (room.meta.status !== "playing") return undefined;
+    const pts = seqList.map(seq => room.stones.find(s => s.seq === seq)).filter(Boolean);
+    if (pts.length !== 4) return undefined;
+    const accuserName = room.players[myId] ? room.players[myId].name : "?";
+    if (!isKyoen(pts)) {
+      result = "miss";
+      // 不正解：指摘した本人が脱落する
+      if (room.players[myId]) room.players[myId].active = false;
+      room.log = pushLog(room, {
+        type: "accuse_miss_elim",
+        accuserName,
+        pts: pts.map(p => [p.x, p.y]),
+        ts: Date.now()
+      });
+      if (!room.players[room.currentTurn] || !room.players[room.currentTurn].active) {
+        const idx = room.turnOrder.indexOf(room.currentTurn);
+        room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx >= 0 ? idx : 0);
+      }
+      const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
+      if (activeIds.length <= 1) {
+        room.meta.status = "finished";
+        room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
+        room.log = pushLog(room, {
+          type: "win",
+          name: activeIds.length === 1 ? room.players[activeIds[0]].name : null,
+          ts: Date.now()
+        });
+      }
+      return room;
+    }
+    result = "hit";
+    room.meta.status = "finished";
+    room.winner = myId;
+    room.log = pushLog(room, {
+      type: "win_by_accuse",
+      accuserName,
+      pts: pts.map(p => [p.x, p.y]),
+      ts: Date.now()
+    });
+    return room;
+  });
+  return result;
+}
+async function resetRoom(roomId) {
+  const myId = getOrCreatePlayerId();
+  const ref = db.ref("rooms/" + roomId);
+  await runTx(ref, room => {
+    if (room === null) return undefined;
+    if (room.meta.hostId !== myId) return undefined;
+    room.meta.status = "waiting";
+    room.turnOrder = [];
+    room.currentTurn = null;
+    room.stones = [];
+    room.lastStoneSeq = -1;
+    room.winner = null;
+    room.log = [];
+    Object.keys(room.players).forEach(pid => room.players[pid].active = true);
+    return room;
+  });
+}
+
+/* =====================================================================
+   1人プレイ（オフライン・CPU対戦）エンジン
+   ネットワークもFirebaseも使わず、すべてローカルの状態遷移だけで完結する。
+   ルールは共通：CPUの一手は「あなた」だけが指摘して脱走させられる一方、
+   あなたの一手はCPU側が見逃さず即座に判定する（CPUは計算ミスをしない、
+   という設定）。だからこそ盤面を見て違反に気づく力の練習になる。
+   ===================================================================== */
+function shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function emptyCells(stones, radius) {
+  const cells = [];
+  for (let x = -radius; x <= radius; x++) {
+    for (let y = -radius; y <= radius; y++) {
+      if (!stones.some(s => s.x === x && s.y === y)) cells.push({
+        x,
+        y
+      });
+    }
+  }
+  return cells;
+}
+// 制限時間切れなどで自動的に空きマスへ着手させるためのランダム選択
+function randomEmptyCell(stones, radius) {
+  const cells = emptyCells(stones, radius);
+  if (cells.length === 0) return null;
+  return shuffled(cells)[0];
+}
+
+// cell に置いたとき、既存のどれか3点と共円/共線になってしまうか
+function wouldViolate(cell, stones) {
+  const n = stones.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) if (isKyoen([cell, stones[i], stones[j], stones[k]])) return true;
+  return false;
+}
+
+// 直前の一手（latestSeq）が既存のどれか3点と共円/共線を作っていないか総当たりで探す
+function findViolation(stones, latestSeq) {
+  const latest = stones.find(s => s.seq === latestSeq);
+  const others = stones.filter(s => s.seq !== latestSeq);
+  const n = others.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) {
+    const pts = [latest, others[i], others[j], others[k]];
+    if (isKyoen(pts)) return pts;
+  }
+  return null;
+}
+
+// 対局終了後、盤上に存在するが誰にも指摘されなかった共円（共線）をすべて探す
+function findMissedCircles(stones, log) {
+  const caught = new Set();
+  (log || []).forEach(e => {
+    if ((e.type === "eliminate" || e.type === "win_by_accuse") && e.pts) {
+      const key = e.pts.map(p => p.join(",")).slice().sort().join("|");
+      caught.add(key);
+    }
+  });
+  const missed = [];
+  const n = stones.length;
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++)
+      for (let k = j + 1; k < n; k++)
+        for (let l = k + 1; l < n; l++) {
+          const combo = [stones[i], stones[j], stones[k], stones[l]];
+          if (isKyoen(combo)) {
+            const key = combo.map(p => [p.x, p.y].join(",")).slice().sort().join("|");
+            if (!caught.has(key)) missed.push(combo.map(p => [p.x, p.y]));
+          }
+        }
+  return missed;
+}
+
+// CPUの一手：難易度によって選び方を変える
+//  easy   : 安全確認をあまりせず、ほぼランダムに置く（初心者向け・隙が多い）
+//  normal : 安全なマスがあればランダムにそれを選ぶ（現行の標準的な打ち方）
+//  hard   : 安全なマスの中から、その後もできるだけ安全なマスが多く残る一手を選ぶ（簡易先読み）
+function cpuChooseMove(stones, radius, difficulty) {
+  const allCells = emptyCells(stones, radius);
+  if (allCells.length === 0) return null;
+
+  if (difficulty === "easy") {
+    const shuffledAll = shuffled(allCells);
+    if (Math.random() < 0.25) {
+      for (const cell of shuffledAll) {
+        if (!wouldViolate(cell, stones)) return cell;
+      }
+    }
+    return shuffledAll[0];
+  }
+
+  const safeCells = allCells.filter(cell => !wouldViolate(cell, stones));
+  if (safeCells.length === 0) return shuffled(allCells)[0];
+
+  if (difficulty === "hard") {
+    const candidates = shuffled(safeCells).slice(0, 25);
+    let best = null;
+    let bestScore = -1;
+    for (const cand of candidates) {
+      const hypothetical = stones.concat([{ x: cand.x, y: cand.y, owner: "_tmp", seq: stones.length }]);
+      const remaining = shuffled(allCells.filter(c => !(c.x === cand.x && c.y === cand.y))).slice(0, 60);
+      let safeCount = 0;
+      for (const c of remaining) {
+        if (!wouldViolate(c, hypothetical)) safeCount++;
+      }
+      if (safeCount > bestScore) {
+        bestScore = safeCount;
+        best = cand;
+      }
+    }
+    return best;
+  }
+
+  return shuffled(safeCells)[0];
+}
+/* =====================================================================
+   サウンドエンジン（Tone.js。音源ファイルなしで合成する）
+   ブラウザの制約で、最初のユーザー操作があるまで音は鳴らせないため、
+   初回クリック時に unlock() して以降使えるようにする。
+   Tone が読み込めていない環境（テスト等）でも落ちないよう全て guard する。
+   ===================================================================== */
+const Sound = (() => {
+  let ready = false;
+  let muted = localStorage.getItem("kyoen_muted") === "1";
+  let synth = null,
+    noise = null,
+    memb = null;
+  function available() {
+    return typeof Tone !== "undefined" && Tone && Tone.context;
+  }
+  async function unlock() {
+    if (!available() || ready) return;
+    try {
+      await Tone.start();
+      synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: {
+          type: "triangle"
+        },
+        envelope: {
+          attack: 0.005,
+          decay: 0.12,
+          sustain: 0.05,
+          release: 0.25
+        }
+      }).toDestination();
+      synth.volume.value = -10;
+      noise = new Tone.NoiseSynth({
+        noise: {
+          type: "white"
+        },
+        envelope: {
+          attack: 0.001,
+          decay: 0.08,
+          sustain: 0
+        }
+      }).toDestination();
+      noise.volume.value = -22;
+      memb = new Tone.MembraneSynth().toDestination();
+      memb.volume.value = -14;
+      ready = true;
+    } catch (e) {
+      ready = false;
+    }
+  }
+  function isMuted() {
+    return muted;
+  }
+  function setMuted(v) {
+    muted = v;
+    localStorage.setItem("kyoen_muted", v ? "1" : "0");
+  }
+  function guard() {
+    return ready && !muted && available();
+  }
+  return {
+    unlock,
+    isMuted,
+    setMuted,
+    // 石を置く：短い打撃音
+    place() {
+      if (!guard()) return;
+      try {
+        memb.triggerAttackRelease("C2", "16n");
+      } catch (e) {}
+    },
+    // 指摘ボタン：緊張感のある上昇音
+    accuseOpen() {
+      if (!guard()) return;
+      try {
+        const now = Tone.now();
+        synth.triggerAttackRelease("E4", "16n", now);
+        synth.triggerAttackRelease("A4", "16n", now + 0.09);
+      } catch (e) {}
+    },
+    // 点を選ぶ：軽いクリック音
+    select() {
+      if (!guard()) return;
+      try {
+        noise.triggerAttackRelease("32n");
+      } catch (e) {}
+    },
+    // 正解：ファンファーレ
+    correct() {
+      if (!guard()) return;
+      try {
+        const now = Tone.now();
+        ["C5", "E5", "G5", "C6"].forEach((n, i) => {
+          synth.triggerAttackRelease(n, "8n", now + i * 0.11);
+        });
+      } catch (e) {}
+    },
+    // 不正解：低いブザー
+    wrong() {
+      if (!guard()) return;
+      try {
+        const now = Tone.now();
+        synth.triggerAttackRelease("Eb3", "8n", now);
+        synth.triggerAttackRelease("D3", "4n", now + 0.16);
+      } catch (e) {}
+    },
+    // 残り時間わずか：時計の音
+    tick() {
+      if (!guard()) return;
+      try {
+        noise.triggerAttackRelease("64n");
+      } catch (e) {}
+    },
+    // 勝利
+    win() {
+      if (!guard()) return;
+      try {
+        const now = Tone.now();
+        ["G4", "C5", "E5", "G5", "C6"].forEach((n, i) => {
+          synth.triggerAttackRelease(n, "8n", now + i * 0.1);
+        });
+      } catch (e) {}
+    }
+  };
+})();
+
+/* =====================================================================
+   ヒートマップ用：各空きマスについて「そこに置くと何通りの共円ができるか」
+   ===================================================================== */
+function dangerMap(stones, radius) {
+  const map = [];
+  const n = stones.length;
+  for (let x = -radius; x <= radius; x++) {
+    for (let y = -radius; y <= radius; y++) {
+      if (stones.some(s => s.x === x && s.y === y)) continue;
+      const cell = {
+        x,
+        y
+      };
+      let count = 0;
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) if (isKyoen([cell, stones[i], stones[j], stones[k]])) count++;
+      map.push({
+        x,
+        y,
+        count
+      });
+    }
+  }
+  return map;
+}
+
+/* =====================================================================
+   パズルモード：ランダムな盤面を生成する
+   kind "count" … 盤上にいくつ共円があるか数える（選択肢から選ぶ）
+   kind "safe"  … 共円を作らずに置けるマスを1つ見つけてタップする
+   ===================================================================== */
+function countCircles(stones) {
+  let c = 0;
+  const n = stones.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) for (let l = k + 1; l < n; l++) if (isKyoen([stones[i], stones[j], stones[k], stones[l]])) c++;
+  return c;
+}
+
+// 盤上に存在する共円をすべて列挙する（答え合わせでの表示用）
+function listCircles(stones) {
+  const out = [];
+  const n = stones.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) for (let l = k + 1; l < n; l++) {
+    const combo = [stones[i], stones[j], stones[k], stones[l]];
+    if (isKyoen(combo)) out.push(combo.map(p => ({
+      x: p.x,
+      y: p.y
+    })));
+  }
+  return out;
+}
+function generatePuzzle(level) {
+  // level 1..3 で盤面サイズと石数を変える
+  const radius = level === 1 ? 3 : level === 2 ? 4 : 4;
+  // "safe" は石が多いほど安全マスが減って良問になるので、種類ごとに石数を変える
+  const kind0 = Math.random() < 0.5 ? "find" : "safe";
+  const stoneCount = kind0 === "safe" ? level === 1 ? 7 : level === 2 ? 10 : 13 : level === 1 ? 5 : level === 2 ? 7 : 9;
+  const kind = kind0;
+  for (let attempt = 0; attempt < 150; attempt++) {
+    const cells = [];
+    for (let x = -radius; x <= radius; x++) for (let y = -radius; y <= radius; y++) cells.push({
+      x,
+      y
+    });
+    const picked = shuffled(cells).slice(0, stoneCount).map((c, i) => ({
+      x: c.x,
+      y: c.y,
+      owner: "puzzle",
+      seq: i
+    }));
+    if (kind === "find") {
+      const answer = countCircles(picked);
+      // 共円が1組もないと問題にならず、多すぎると簡単すぎるので 1〜3組の盤面だけ採用する
+      if (answer >= 1 && answer <= 3) {
+        return {
+          stones: picked,
+          radius,
+          kind,
+          answer
+        };
+      }
+    } else {
+      const empties = emptyCells(picked, radius);
+      const safe = empties.filter(c => !wouldViolate(c, picked));
+      // 安全なマスが少ないほど良問。多すぎると簡単すぎるので絞る
+      if (safe.length >= 1 && safe.length <= Math.max(6, Math.floor(empties.length * 0.4))) {
+        return {
+          stones: picked,
+          radius,
+          kind,
+          safeCells: safe,
+          answer: safe.length
+        };
+      }
+    }
+  }
+  // 生成に失敗した場合のフォールバック（必ず答えのある正方形の盤面）
+  const fallback = [{
+    x: 0,
+    y: 0,
+    owner: "puzzle",
+    seq: 0
+  }, {
+    x: 2,
+    y: 0,
+    owner: "puzzle",
+    seq: 1
+  }, {
+    x: 0,
+    y: 2,
+    owner: "puzzle",
+    seq: 2
+  }, {
+    x: 2,
+    y: 2,
+    owner: "puzzle",
+    seq: 3
+  }];
+  return {
+    stones: fallback,
+    radius: 3,
+    kind: "find",
+    answer: 1
+  };
+}
+
+function initLocalState(cfg) {
+  const players = {
+    human: {
+      name: cfg.name || "あなた",
+      color: PLAYER_COLORS[0],
+      order: 0,
+      active: true,
+      isCPU: false
+    }
+  };
+  const turnOrder = ["human"];
+  for (let i = 0; i < cfg.cpuCount; i++) {
+    const pid = "cpu" + (i + 1);
+    players[pid] = {
+      name: "CPU" + "①②③④"[i],
+      color: PLAYER_COLORS[(i + 1) % PLAYER_COLORS.length],
+      order: i + 1,
+      active: true,
+      isCPU: true
+    };
+    turnOrder.push(pid);
+  }
+  return {
+    meta: {
+      boardRadius: cfg.radius,
+      status: "playing",
+      difficulty: cfg.difficulty || "normal",
+      ruleset: cfg.ruleset || "major",
+      timeLimit: cfg.timeLimit || null
+    },
+    players,
+    turnOrder,
+    currentTurn: "human",
+    stones: [],
+    lastStoneSeq: -1,
+    log: [{
+      type: "start"
+    }],
+    winner: null,
+    humanLost: false
+  };
+}
+
+// 友人と対戦（オフライン・同一画面のホットシート）：全員人間、自動判定なし
+function initHotseatState(cfg) {
+  const players = {};
+  const turnOrder = [];
+  cfg.names.forEach((name, i) => {
+    const pid = "p" + (i + 1);
+    players[pid] = {
+      name: name && name.trim() ? name.trim() : `プレイヤー${i + 1}`,
+      color: PLAYER_COLORS[i % PLAYER_COLORS.length],
+      order: i,
+      active: true,
+      isCPU: false
+    };
+    turnOrder.push(pid);
+  });
+  return {
+    meta: {
+      boardRadius: cfg.radius,
+      status: "playing",
+      ruleset: cfg.ruleset || "major",
+      timeLimit: cfg.timeLimit || null
+    },
+    players,
+    turnOrder,
+    currentTurn: turnOrder[0],
+    stones: [],
+    lastStoneSeq: -1,
+    log: [{
+      type: "start"
+    }],
+    winner: null,
+    humanLost: false
+  };
+}
+
+// pid の手番として (x,y) に着手する。autoCheckSelf が true の場合のみ、その場で置いた本人の一手を判定する
+// （CPU対戦であなたの一手をCPUが見逃さず判定する用途）。友人と対戦（ホットシート）や
+// CPU自身の一手では false を渡し、指摘されるまで安全とする。
+function localPlace(state, pid, x, y, autoCheckSelf) {
+  const room = JSON.parse(JSON.stringify(state));
+  if (room.meta.status !== "playing") return room;
+  if (room.currentTurn !== pid) return room;
+  if (room.stones.some(s => s.x === x && s.y === y)) return room;
+  const seq = room.stones.length;
+  room.stones.push({
+    x,
+    y,
+    owner: pid,
+    seq
+  });
+  room.lastStoneSeq = seq;
+  room.log = pushLog(room, {
+    type: "place",
+    name: room.players[pid].name,
+    x,
+    y
+  });
+  const r = room.meta.boardRadius;
+  const total = (2 * r + 1) * (2 * r + 1);
+  if (room.stones.length >= total) {
+    room.meta.status = "finished";
+    room.winner = "draw";
+    room.log = pushLog(room, {
+      type: "draw"
+    });
+    return room;
+  }
+  if (autoCheckSelf) {
+    const violation = findViolation(room.stones, seq);
+    if (violation) {
+      room.players[pid].active = false;
+      room.humanLost = true;
+      room.log = pushLog(room, {
+        type: "eliminate",
+        accuserName: "CPU",
+        targetName: room.players[pid].name,
+        pts: violation.map(p => [p.x, p.y])
+      });
+      room.meta.status = "finished";
+      room.winner = null;
+      return room;
+    }
+  }
+  const idx = room.turnOrder.indexOf(pid);
+  room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx);
+  return room;
+}
+
+// 直前の一手を選択4点で指摘する。accuserName は任意（CPU対戦時は「あなた」の名前を渡す。
+// 友人と対戦（ホットシート）では誰が指摘したかは記録しない）
+function localAccuse(state, seqList, accuserName) {
+  const room = JSON.parse(JSON.stringify(state));
+  if (room.meta.status !== "playing") return {
+    room,
+    result: "error"
+  };
+  if (!seqList.includes(room.lastStoneSeq)) return {
+    room,
+    result: "error"
+  };
+  const pts = seqList.map(seq => room.stones.find(s => s.seq === seq)).filter(Boolean);
+  if (pts.length !== 4) return {
+    room,
+    result: "error"
+  };
+  const targetStone = room.stones.find(s => s.seq === room.lastStoneSeq);
+  const targetPid = targetStone.owner;
+  if (!isKyoen(pts)) {
+    room.log = pushLog(room, {
+      type: "fail",
+      accuserName: accuserName || null,
+      pts: pts.map(p => [p.x, p.y])
+    });
+    return {
+      room,
+      result: "miss"
+    };
+  }
+  room.players[targetPid].active = false;
+  room.log = pushLog(room, {
+    type: "eliminate",
+    accuserName: accuserName || null,
+    targetName: room.players[targetPid].name,
+    pts: pts.map(p => [p.x, p.y])
+  });
+  if (!room.players[room.currentTurn].active) {
+    const idx = room.turnOrder.indexOf(room.currentTurn);
+    room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx);
+  }
+  const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
+  if (activeIds.length <= 1) {
+    room.meta.status = "finished";
+    room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
+    room.log = pushLog(room, {
+      type: "win",
+      name: activeIds.length === 1 ? room.players[activeIds[0]].name : null
+    });
+  }
+  return {
+    room,
+    result: "hit"
+  };
+}
+
+// 南稜ローカルルール：直前の一手に限らず盤上のどの4点でも指摘でき、成立したら指摘した本人が即勝利する
+function localAccuseAny(state, seqList, accuserPid) {
+  const room = JSON.parse(JSON.stringify(state));
+  if (room.meta.status !== "playing") return {
+    room,
+    result: "error"
+  };
+  const pts = seqList.map(seq => room.stones.find(s => s.seq === seq)).filter(Boolean);
+  if (pts.length !== 4) return {
+    room,
+    result: "error"
+  };
+  const accuserName = room.players[accuserPid] ? room.players[accuserPid].name : null;
+  if (!isKyoen(pts)) {
+    // 不正解：指摘した本人が脱落する
+    if (room.players[accuserPid]) room.players[accuserPid].active = false;
+    room.log = pushLog(room, {
+      type: "accuse_miss_elim",
+      accuserName,
+      pts: pts.map(p => [p.x, p.y])
+    });
+    if (!room.players[room.currentTurn] || !room.players[room.currentTurn].active) {
+      const idx = room.turnOrder.indexOf(room.currentTurn);
+      room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx >= 0 ? idx : 0);
+    }
+    const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
+    if (activeIds.length <= 1) {
+      room.meta.status = "finished";
+      room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
+      room.log = pushLog(room, {
+        type: "win",
+        name: activeIds.length === 1 ? room.players[activeIds[0]].name : null
+      });
+    }
+    return {
+      room,
+      result: "miss"
+    };
+  }
+  room.meta.status = "finished";
+  room.winner = accuserPid;
+  room.log = pushLog(room, {
+    type: "win_by_accuse",
+    accuserName,
+    pts: pts.map(p => [p.x, p.y])
+  });
+  return {
+    room,
+    result: "hit"
+  };
+}
+
+/* =====================================================================
+   UI: 盤面 (SVG)
+   ===================================================================== */
+function computeCircleOrLine(pts3, toPx, cell, dim) {
+  const [a, b, c] = pts3;
+  const cc = circumcircle(a, b, c);
+  if (cc) {
+    const center = toPx(cc.x, cc.y);
+    return {
+      type: "circle",
+      cx: center.px,
+      cy: center.py,
+      r: cc.r * cell
+    };
+  }
+  const dx = b.x - a.x,
+    dy = b.y - a.y;
+  const t = Math.max(dim, dim) * 3;
+  const norm = Math.hypot(dx, dy) || 1;
+  const p1 = toPx(a.x - dx / norm * (t / cell), a.y - dy / norm * (t / cell));
+  const p2 = toPx(a.x + dx / norm * (t / cell), a.y + dy / norm * (t / cell));
+  return {
+    type: "line",
+    x1: p1.px,
+    y1: p1.py,
+    x2: p2.px,
+    y2: p2.py
+  };
+}
+
+// 危険度（その手で何通りの共円ができるか）を色に変換する
+function dangerColor(count, max) {
+  if (count <= 0) return "var(--safe)";
+  const t = max <= 1 ? 1 : Math.min(1, count / max);
+  // 黄 → 赤 のグラデーション
+  const r = Math.round(232 + (232 - 232) * t);
+  const g = Math.round(197 - 111 * t);
+  const b = Math.round(90 - 28 * t);
+  return `rgb(${r},${g},${b})`;
+}
+function Board({
+  radius,
+  stones,
+  players,
+  lastStoneSeq,
+  status,
+  myTurn,
+  canPlace,
+  onPointClick,
+  mode,
+  selected,
+  resultCircle,
+  resultBad,
+  showNumbers,
+  heatmap,
+  highlightPoints
+}) {
+  const cell = 34;
+  const pad = 26;
+  const size = 2 * radius;
+  const dim = size * cell + pad * 2;
+  const toPx = (x, y) => ({
+    px: pad + (x + radius) * cell,
+    py: pad + (radius - y) * cell
+  });
+  const stoneAt = (x, y) => stones.find(s => s.x === x && s.y === y);
+  const selectedSet = new Set(selected.map(s => s.seq));
+  const resultSet = resultCircle ? new Set(resultCircle.map(p => p.x + "_" + p.y)) : null;
+  const highlightSet = highlightPoints ? new Set(highlightPoints.map(p => p.x + "_" + p.y)) : null;
+  const heatLookup = {};
+  let heatMax = 1;
+  if (heatmap) {
+    heatmap.forEach(h => {
+      heatLookup[h.x + "_" + h.y] = h.count;
+      if (h.count > heatMax) heatMax = h.count;
+    });
+  }
+
+  // 「判定してみる」モードのライブプレビュー（指摘モードでは答えが見えるため出さない）
+  let preview = null;
+  if (mode === "judge" && selected.length >= 3) {
+    preview = computeCircleOrLine(selected.slice(0, 3), toPx, cell, dim);
+  }
+
+  // 指摘成立／見逃し表示用の確定した円（実線でアニメーション付きで描く）
+  const shapeSource = resultCircle || highlightPoints;
+  let resultShape = null;
+  if (shapeSource && shapeSource.length === 4) {
+    resultShape = computeCircleOrLine(shapeSource.slice(0, 3), toPx, cell, dim);
+  }
+  const shapeColor = resultCircle ? (resultBad ? "var(--danger)" : "var(--safe)") : "var(--accent)";
+  // 円周の長さ（stroke-dasharray で「描く」アニメーションをするために必要）
+  const circLen = resultShape && resultShape.type === "circle" ? 2 * Math.PI * resultShape.r : resultShape ? Math.hypot(resultShape.x2 - resultShape.x1, resultShape.y2 - resultShape.y1) : 0;
+  // 同じ4点なら再アニメーションしないよう、key に座標を埋め込む
+  const shapeKey = shapeSource ? shapeSource.map(p => p.x + "," + p.y).join("|") : "none";
+  const lines = [];
+  for (let i = -radius; i <= radius; i++) {
+    const isAxis = i === 0;
+    const p1 = toPx(-radius, i),
+      p2 = toPx(radius, i);
+    lines.push(/*#__PURE__*/React.createElement("line", {
+      key: "h" + i,
+      x1: p1.px,
+      y1: p1.py,
+      x2: p2.px,
+      y2: p2.py,
+      stroke: isAxis ? "var(--grid-line-axis)" : "var(--grid-line)",
+      strokeWidth: isAxis ? 1.4 : 1
+    }));
+    const q1 = toPx(i, -radius),
+      q2 = toPx(i, radius);
+    lines.push(/*#__PURE__*/React.createElement("line", {
+      key: "v" + i,
+      x1: q1.px,
+      y1: q1.py,
+      x2: q2.px,
+      y2: q2.py,
+      stroke: isAxis ? "var(--grid-line-axis)" : "var(--grid-line)",
+      strokeWidth: isAxis ? 1.4 : 1
+    }));
+  }
+  const points = [];
+  for (let x = -radius; x <= radius; x++) {
+    for (let y = -radius; y <= radius; y++) {
+      const s = stoneAt(x, y);
+      const {
+        px,
+        py
+      } = toPx(x, y);
+      const clickable = mode === "place" ? !s && canPlace : mode === "judge" || mode === "accuse" ? !!s : mode === "puzzle-pick" ? !s : false;
+      const isResultPoint = resultSet && resultSet.has(x + "_" + y);
+      const isHighlightPoint = highlightSet && highlightSet.has(x + "_" + y);
+      const heatCount = heatLookup[x + "_" + y];
+      const emphasised = isResultPoint || isHighlightPoint;
+      points.push(/*#__PURE__*/React.createElement("g", {
+        key: x + "_" + y
+      }, !s && heatCount === undefined && /*#__PURE__*/React.createElement("circle", {
+        className: "lattice-dot",
+        cx: px,
+        cy: py,
+        r: 2.6
+      }), !s && heatCount !== undefined && /*#__PURE__*/React.createElement("circle", {
+        cx: px,
+        cy: py,
+        r: heatCount > 0 ? 7 : 5,
+        fill: dangerColor(heatCount, heatMax),
+        opacity: heatCount > 0 ? 0.75 : 0.5
+      }), s && /*#__PURE__*/React.createElement("circle", {
+        key: emphasised ? shapeKey : undefined,
+        className: emphasised ? "point-pop" : undefined,
+        cx: px,
+        cy: py,
+        r: 13,
+        fill: players[s.owner] && players[s.owner].active ? players[s.owner].color : "#3a4456",
+        stroke: isResultPoint ? (resultBad ? "var(--danger)" : "var(--safe)") : isHighlightPoint ? "var(--accent)" : selectedSet.has(s.seq) ? "var(--accent)" : "var(--bg)",
+        strokeWidth: emphasised || selectedSet.has(s.seq) ? 3.5 : 2,
+        opacity: players[s.owner] && players[s.owner].active ? 1 : 0.55
+      }), s && showNumbers && /*#__PURE__*/React.createElement("text", {
+        x: px,
+        y: py + 4,
+        textAnchor: "middle",
+        fontSize: "11",
+        fontWeight: "600",
+        fill: "var(--bg)",
+        style: {
+          pointerEvents: "none"
+        }
+      }, s.seq + 1), s && !showNumbers && !(players[s.owner] && players[s.owner].active) && /*#__PURE__*/React.createElement("text", {
+        x: px,
+        y: py + 4,
+        textAnchor: "middle",
+        fontSize: "11",
+        fill: "var(--bg)"
+      }, "\xD7"), s && s.seq === lastStoneSeq && status === "playing" && /*#__PURE__*/React.createElement("circle", {
+        className: "pulse-ring",
+        cx: px,
+        cy: py,
+        r: 15
+      }), /*#__PURE__*/React.createElement("circle", {
+        className: "lattice-hit" + (clickable ? "" : " disabled"),
+        cx: px,
+        cy: py,
+        r: 15,
+        onClick: clickable ? () => onPointClick(x, y, s) : undefined
+      })));
+    }
+  }
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "board-svg",
+    viewBox: `0 0 ${dim} ${dim}`
+  }, lines, preview && preview.type === "circle" && /*#__PURE__*/React.createElement("circle", {
+    cx: preview.cx,
+    cy: preview.cy,
+    r: preview.r,
+    fill: "none",
+    stroke: "var(--accent)",
+    strokeWidth: "1.4",
+    strokeDasharray: "5,4",
+    opacity: "0.85"
+  }), preview && preview.type === "line" && /*#__PURE__*/React.createElement("line", {
+    x1: preview.x1,
+    y1: preview.y1,
+    x2: preview.x2,
+    y2: preview.y2,
+    stroke: "var(--accent)",
+    strokeWidth: "1.4",
+    strokeDasharray: "5,4",
+    opacity: "0.85"
+  }), resultShape && resultShape.type === "circle" && /*#__PURE__*/React.createElement("circle", {
+    key: shapeKey,
+    className: "draw-circle",
+    cx: resultShape.cx,
+    cy: resultShape.cy,
+    r: resultShape.r,
+    fill: "none",
+    stroke: shapeColor,
+    strokeWidth: "2.4",
+    strokeDasharray: circLen,
+    style: {
+      "--circ": circLen
+    }
+  }), resultShape && resultShape.type === "line" && /*#__PURE__*/React.createElement("line", {
+    key: shapeKey,
+    className: "draw-circle",
+    x1: resultShape.x1,
+    y1: resultShape.y1,
+    x2: resultShape.x2,
+    y2: resultShape.y2,
+    stroke: shapeColor,
+    strokeWidth: "2.4",
+    strokeDasharray: circLen,
+    style: {
+      "--circ": circLen
+    }
+  }), points);
+}
+
+/* =====================================================================
+   UI: ホーム画面
+   ===================================================================== */
+function HomeScreen({
+  onCreate,
+  onJoin,
+  onStartLocal,
+  onStartHotseat,
+  onStartPuzzle,
+  joinPrefill,
+  configReady
+}) {
+  const [mode, setMode] = useState(joinPrefill ? "join" : null);
+  const [name, setName] = useState(getSavedName());
+  const [preset, setPreset] = useState("medium");
+  const [maxPlayers, setMaxPlayers] = useState(4);
+  const [ruleset, setRuleset] = useState("major");
+  const [timeLimit, setTimeLimit] = useState("none");
+  const [code, setCode] = useState(joinPrefill || "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // 1人プレイ（オフライン）用のローカルステート
+  const [localName, setLocalName] = useState(getSavedName());
+  const [localPreset, setLocalPreset] = useState("medium");
+  const [cpuCount, setCpuCount] = useState(1);
+  const [difficulty, setDifficulty] = useState(getSavedDifficulty());
+  const [localRuleset, setLocalRuleset] = useState("major");
+  const [localTimeLimit, setLocalTimeLimit] = useState("none");
+
+  // 友人と対戦（オフライン・同一画面）用のローカルステート
+  const [hotseatCount, setHotseatCount] = useState(2);
+  const [hotseatPreset, setHotseatPreset] = useState("medium");
+  const [hotseatNames, setHotseatNames] = useState(["", "", "", "", ""]);
+  const [hotseatRuleset, setHotseatRuleset] = useState("major");
+  const [hotseatTimeLimit, setHotseatTimeLimit] = useState("none");
+  function secondsOf(key) {
+    const opt = TIME_LIMIT_OPTIONS.find(t => t.key === key);
+    return opt ? opt.seconds : null;
+  }
+  async function handleCreate() {
+    if (!name.trim()) {
+      setError("名前を入力してください");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    saveName(name.trim());
+    try {
+      await onCreate(name.trim(), preset, maxPlayers, ruleset, secondsOf(timeLimit));
+    } catch (e) {
+      setError("ルームの作成に失敗しました。もう一度お試しください");
+    }
+    setBusy(false);
+  }
+  async function handleJoin() {
+    if (!name.trim()) {
+      setError("名前を入力してください");
+      return;
+    }
+    if (!code.trim()) {
+      setError("ルームコードを入力してください");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    saveName(name.trim());
+    const res = await onJoin(code.trim().toUpperCase(), name.trim());
+    if (res === "not_found") setError("そのルームコードは見つかりませんでした");else if (res === "full") setError("このルームは満員です");else if (res === "already_started") setError("このルームは既に対戦が始まっています");else if (res !== "ok") setError("参加に失敗しました。もう一度お試しください");
+    setBusy(false);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "home-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "home-title"
+  }, "\u5171\u5186"), /*#__PURE__*/React.createElement("div", {
+    className: "home-tagline"
+  }, "\u683C\u5B50\u70B9\u306B\u77F3\u3092\u7F6E\u304D\u5408\u3044\u30014\u3064\u306E\u77F3\u304C\u540C\u4E00\u5186\u5468\uFF08\u307E\u305F\u306F\u4E00\u76F4\u7DDA\uFF09\u306B\u4E57\u3063\u305F\u3089\u6307\u6458\u3057\u3066\u8131\u843D\u3055\u305B\u308B\u5BFE\u6226\u30B2\u30FC\u30E0\u3067\u3059\u3002"), mode === null && /*#__PURE__*/React.createElement("div", {
+    className: "home-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary",
+    onClick: () => setMode("local")
+  }, "1\u4EBA\u3067\u7DF4\u7FD2\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\u30FBCPU\u5BFE\u6226\uFF09"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => setMode("hotseat")
+  }, "\u53CB\u4EBA\u3068\u5BFE\u6226\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\u30FB\u540C\u3058\u753B\u9762\u3067\uFF09"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => { Sound.unlock(); onStartPuzzle(); }
+  }, "\u554F\u984C\u30E2\u30FC\u30C9\uFF08\u8A70\u3081\u5171\u5186\uFF09"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    disabled: !configReady,
+    onClick: () => setMode("create")
+  }, configReady ? "\u30EB\u30FC\u30E0\u3092\u4F5C\u308B" : "\u30EB\u30FC\u30E0\u3092\u4F5C\u308B\uFF08\u6E96\u5099\u4E2D\uFF09"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    disabled: !configReady,
+    onClick: () => setMode("join")
+  }, configReady ? "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B" : "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B\uFF08\u6E96\u5099\u4E2D\uFF09")), mode === null && /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginTop: 10
+    }
+  }, "\u203B\u30AA\u30F3\u30E9\u30A4\u30F3\u5BFE\u6226\uFF08\u30EB\u30FC\u30E0\u3092\u4F5C\u308B\uFF0F\u53C2\u52A0\u3059\u308B\uFF09\u306F\u6E96\u5099\u4E2D\u3067\u3059\u3002今は「1人で練習する」「友人と対戦する」「問題モード」がご利用いただけます。"), mode === "local" && /*#__PURE__*/React.createElement("div", {
+    className: "card home-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "1\u4EBA\u3067\u7DF4\u7FD2\u3059\u308B"), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginTop: -6,
+      marginBottom: 12
+    }
+  }, "\u901A\u4FE1\u306F\u4F7F\u3044\u307E\u305B\u3093\u3002CPU\u306F\u3042\u306A\u305F\u306E\u4E00\u624B\u3092\u898B\u9003\u3057\u307E\u305B\u3093\u304C\u3001CPU\u81EA\u8EAB\u306E\u4E00\u624B\u306F\u3042\u306A\u305F\u304C\u6307\u6458\u3057\u306A\u3044\u3068\u5B89\u5168\u306B\u306A\u3063\u3066\u3057\u307E\u3044\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u3042\u306A\u305F\u306E\u540D\u524D"), /*#__PURE__*/React.createElement("input", {
+    value: localName,
+    onChange: e => setLocalName(e.target.value),
+    maxLength: 12,
+    placeholder: "\u4F8B\uFF1A\u4FEE\u4EAE"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u76E4\u9762\u306E\u5927\u304D\u3055"), /*#__PURE__*/React.createElement("select", {
+    value: localPreset,
+    onChange: e => setLocalPreset(e.target.value)
+  }, BOARD_PRESETS.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.key,
+    value: p.key
+  }, p.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "CPU\u306E\u4EBA\u6570"), /*#__PURE__*/React.createElement("select", {
+    value: cpuCount,
+    onChange: e => setCpuCount(Number(e.target.value))
+  }, [1, 2, 3, 4].map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n, "\u4EBA")))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u96E3\u6613\u5EA6"), /*#__PURE__*/React.createElement("select", {
+    value: difficulty,
+    onChange: e => setDifficulty(e.target.value)
+  }, DIFFICULTY_OPTIONS.map(d => /*#__PURE__*/React.createElement("option", {
+    key: d.key,
+    value: d.key
+  }, d.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u30EB\u30FC\u30EB"), /*#__PURE__*/React.createElement("select", {
+    value: localRuleset,
+    onChange: e => setLocalRuleset(e.target.value)
+  }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
+    key: r.key,
+    value: r.key
+  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF08\u3042\u306A\u305F\u306E\u756A\u306E\u307F\uFF09"), /*#__PURE__*/React.createElement("select", {
+    value: localTimeLimit,
+    onChange: e => setLocalTimeLimit(e.target.value)
+  }, TIME_LIMIT_OPTIONS.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.key,
+    value: t.key
+  }, t.label)))), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-block",
+    onClick: () => {
+      const n = localName.trim() || "あなた";
+      saveName(n);
+      saveDifficulty(difficulty);
+      const preset = BOARD_PRESETS.find(p => p.key === localPreset) || BOARD_PRESETS[1];
+      onStartLocal({
+        name: n,
+        radius: preset.radius,
+        cpuCount,
+        difficulty,
+        ruleset: localRuleset,
+        timeLimit: secondsOf(localTimeLimit)
+      });
+    }
+  }, "\u5BFE\u5C40\u3092\u958B\u59CB\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => setMode(null)
+  }, "\u623B\u308B")), mode === "hotseat" && /*#__PURE__*/React.createElement("div", {
+    className: "card home-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\u53CB\u4EBA\u3068\u5BFE\u6226\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\uFF09"), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginTop: -6,
+      marginBottom: 12
+    }
+  }, "\u901A\u4FE1\u306F\u4F7F\u3044\u307E\u305B\u3093\u30021\u53F0\u306E\u7AEF\u672B\u3092\u56DE\u3057\u3066\u3001\u81EA\u5206\u306E\u756A\u306B\u306A\u3063\u305F\u3089\u76E4\u9762\u3092\u30BF\u30C3\u30D7\u3057\u3066\u304F\u3060\u3055\u3044\u3002"), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u4EBA\u6570"), /*#__PURE__*/React.createElement("select", {
+    value: hotseatCount,
+    onChange: e => setHotseatCount(Number(e.target.value))
+  }, [2, 3, 4, 5].map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n, "\u4EBA")))), Array.from({
+    length: hotseatCount
+  }).map((_, i) => /*#__PURE__*/React.createElement("div", {
+    className: "field",
+    key: i
+  }, /*#__PURE__*/React.createElement("label", null, `プレイヤー${i + 1}の名前`), /*#__PURE__*/React.createElement("input", {
+    value: hotseatNames[i],
+    onChange: e => {
+      const next = hotseatNames.slice();
+      next[i] = e.target.value;
+      setHotseatNames(next);
+    },
+    maxLength: 12,
+    placeholder: `プレイヤー${i + 1}`
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u76E4\u9762\u306E\u5927\u304D\u3055"), /*#__PURE__*/React.createElement("select", {
+    value: hotseatPreset,
+    onChange: e => setHotseatPreset(e.target.value)
+  }, BOARD_PRESETS.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.key,
+    value: p.key
+  }, p.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u30EB\u30FC\u30EB"), /*#__PURE__*/React.createElement("select", {
+    value: hotseatRuleset,
+    onChange: e => setHotseatRuleset(e.target.value)
+  }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
+    key: r.key,
+    value: r.key
+  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF081\u624B\u3042\u305F\u308A\uFF09"), /*#__PURE__*/React.createElement("select", {
+    value: hotseatTimeLimit,
+    onChange: e => setHotseatTimeLimit(e.target.value)
+  }, TIME_LIMIT_OPTIONS.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.key,
+    value: t.key
+  }, t.label)))), hotseatRuleset === "nanryo" && /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginBottom: 12
+    }
+  }, "\u5357\u7A1C\u30ED\u30FC\u30AB\u30EB\u30EB\u30FC\u30EB\uFF1A\u76F4\u524D\u306E\u4E00\u624B\u306B\u9650\u3089\u305A\u3001\u76E4\u4E0A\u306E\u3069\u306E4\u70B9\u3067\u3082\u30FB\u8AB0\u3067\u3082\u30FB\u81EA\u5206\u306E\u756A\u3067\u306A\u304F\u3066\u3082\u6307\u6458\u3067\u304D\u307E\u3059\u3002\u6307\u6458\u304C\u6210\u7ACB\u3059\u308B\u3068\u6307\u6458\u3057\u305F\u4EBA\u304C\u305D\u306E\u5834\u3067\u52DD\u5229\u3001\u5916\u308C\u305F\u5834\u5408\u306F\u6307\u6458\u3057\u305F\u4EBA\u304C\u8131\u843D\u3057\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-block",
+    onClick: () => {
+      const preset = BOARD_PRESETS.find(p => p.key === hotseatPreset) || BOARD_PRESETS[1];
+      onStartHotseat({
+        names: hotseatNames.slice(0, hotseatCount),
+        radius: preset.radius,
+        ruleset: hotseatRuleset,
+        timeLimit: secondsOf(hotseatTimeLimit)
+      });
+    }
+  }, "\u5BFE\u5C40\u3092\u958B\u59CB\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => setMode(null)
+  }, "\u623B\u308B")), mode === "create" && /*#__PURE__*/React.createElement("div", {
+    className: "card home-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\u30EB\u30FC\u30E0\u3092\u4F5C\u308B"), !configReady ? /*#__PURE__*/React.createElement(ConfigNeededNotice, {
+    onBack: () => setMode(null)
+  }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u3042\u306A\u305F\u306E\u540D\u524D"), /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    maxLength: 12,
+    placeholder: "\u4F8B\uFF1A\u4FEE\u4EAE"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u76E4\u9762\u306E\u5927\u304D\u3055"), /*#__PURE__*/React.createElement("select", {
+    value: preset,
+    onChange: e => setPreset(e.target.value)
+  }, BOARD_PRESETS.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.key,
+    value: p.key
+  }, p.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u6700\u5927\u4EBA\u6570"), /*#__PURE__*/React.createElement("select", {
+    value: maxPlayers,
+    onChange: e => setMaxPlayers(Number(e.target.value))
+  }, [2, 3, 4, 5].map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n, "\u4EBA")))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u30EB\u30FC\u30EB"), /*#__PURE__*/React.createElement("select", {
+    value: ruleset,
+    onChange: e => setRuleset(e.target.value)
+  }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
+    key: r.key,
+    value: r.key
+  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF081\u624B\u3042\u305F\u308A\uFF09"), /*#__PURE__*/React.createElement("select", {
+    value: timeLimit,
+    onChange: e => setTimeLimit(e.target.value)
+  }, TIME_LIMIT_OPTIONS.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.key,
+    value: t.key
+  }, t.label)))), error && /*#__PURE__*/React.createElement("div", {
+    className: "error-text"
+  }, error), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-block",
+    disabled: busy,
+    onClick: handleCreate
+  }, busy ? "作成中…" : "作成する"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => {
+      setMode(null);
+      setError("");
+    }
+  }, "\u623B\u308B"))), mode === "join" && /*#__PURE__*/React.createElement("div", {
+    className: "card home-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B"), !configReady ? /*#__PURE__*/React.createElement(ConfigNeededNotice, {
+    onBack: () => setMode(null)
+  }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u3042\u306A\u305F\u306E\u540D\u524D"), /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    maxLength: 12,
+    placeholder: "\u4F8B\uFF1A\u4FEE\u4EAE"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "\u30EB\u30FC\u30E0\u30B3\u30FC\u30C9"), /*#__PURE__*/React.createElement("input", {
+    className: "mono",
+    style: {
+      letterSpacing: ".1em",
+      textTransform: "uppercase"
+    },
+    value: code,
+    onChange: e => setCode(e.target.value),
+    maxLength: 5,
+    placeholder: "\u4F8B\uFF1AA3F9K"
+  })), error && /*#__PURE__*/React.createElement("div", {
+    className: "error-text"
+  }, error), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-block",
+    disabled: busy,
+    onClick: handleJoin
+  }, busy ? "参加中…" : "参加する"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => {
+      setMode(null);
+      setError("");
+    }
+  }, "\u623B\u308B")))));
+}
+function ConfigNeededNotice({
+  onBack
+}) {
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginBottom: 12
+    }
+  }, "\u30AA\u30F3\u30E9\u30A4\u30F3\u5BFE\u6226\u306B\u306FFirebase\u306E\u8A2D\u5B9A\u304C\u5FC5\u8981\u3067\u3059\uFF08\u30D5\u30A1\u30A4\u30EB\u5192\u982D\u306E\u30B3\u30E1\u30F3\u30C8\u53C2\u7167\uFF09\u3002 \u8A2D\u5B9A\u306A\u3057\u3067\u3082\u300C1\u4EBA\u3067\u7DF4\u7FD2\u3059\u308B\u300D\u30E2\u30FC\u30C9\u306F\u305D\u306E\u307E\u307E\u4F7F\u3048\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    onClick: onBack
+  }, "\u623B\u308B"));
+}
+
+/* =====================================================================
+   UI: ロビー画面
+   ===================================================================== */
+function LobbyScreen({
+  room,
+  roomId,
+  myId,
+  onStart
+}) {
+  const isHost = room.meta.hostId === myId;
+  const players = Object.entries(room.players || {}).sort((a, b) => a[1].order - b[1].order);
+  const preset = BOARD_PRESETS.find(p => p.radius === room.meta.boardRadius);
+  const link = location.origin + location.pathname + "#" + roomId;
+  const [copied, setCopied] = useState(false);
+  function copyLink() {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lobby-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "room-code-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "room-code mono"
+  }, roomId), /*#__PURE__*/React.createElement("div", {
+    className: "room-meta"
+  }, preset ? preset.label : "", "\u3000\u6700\u5927", room.meta.maxPlayers, "\u4EBA")), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: copyLink
+  }, copied ? "コピーしました" : "招待リンクをコピー")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 18
+    }
+  }, players.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
+    className: "player-row",
+    key: pid
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot",
+    style: {
+      background: p.color
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "player-name"
+  }, p.name, pid === myId ? "（あなた）" : ""), pid === room.meta.hostId && /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\u30DB\u30B9\u30C8"))), Array.from({
+    length: Math.max(0, room.meta.maxPlayers - players.length)
+  }).map((_, i) => /*#__PURE__*/React.createElement("div", {
+    className: "player-row",
+    key: "empty" + i
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "transparent",
+      boxShadow: "none",
+      border: "1px dashed var(--ink-faint)"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "empty-slot"
+  }, "\u53C2\u52A0\u8005\u3092\u5F85\u3063\u3066\u3044\u307E\u3059\u2026")))), isHost ? /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-block",
+    disabled: players.length < MIN_PLAYERS,
+    onClick: onStart
+  }, players.length < MIN_PLAYERS ? `あと${MIN_PLAYERS - players.length}人必要です` : "ゲームを開始する") : /*#__PURE__*/React.createElement("div", {
+    className: "hint-text"
+  }, "\u30DB\u30B9\u30C8\u304C\u958B\u59CB\u3059\u308B\u307E\u3067\u304A\u5F85\u3061\u304F\u3060\u3055\u3044")));
+}
+
+function LogLine({
+  entry
+}) {
+  if (entry.type === "start") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item"
+  }, "\u30B2\u30FC\u30E0\u958B\u59CB");
+  if (entry.type === "place") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item"
+  }, entry.name, " \u3055\u3093\u304C (", entry.x, ", ", entry.y, ") \u306B\u7740\u624B");
+  if (entry.type === "eliminate") {
+    const pts = entry.pts.map(p => `(${p[0]}, ${p[1]})`).join(" ");
+    return /*#__PURE__*/React.createElement("div", {
+      className: "log-item eliminate"
+    }, entry.accuserName ? `${entry.accuserName} さんの指摘成立：` : "指摘成立：", pts, " \u306F\u5171\u5186\uFF0F\u5171\u7DDA\u3002", entry.targetName, " \u3055\u3093\u8131\u843D");
+  }
+  if (entry.type === "fail") {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "log-item fail"
+    }, entry.accuserName ? `${entry.accuserName} さんが指摘しましたが不成立でした` : "指摘がありましたが不成立でした");
+  }
+  if (entry.type === "win_by_accuse") {
+    const pts = entry.pts.map(p => `(${p[0]}, ${p[1]})`).join(" ");
+    return /*#__PURE__*/React.createElement("div", {
+      className: "log-item win"
+    }, entry.accuserName, " \u3055\u3093\u306E\u6307\u6458\u6210\u7ACB\uFF1A", pts, " \u306F\u5171\u5186\uFF0F\u5171\u7DDA\u3002", entry.accuserName, " \u3055\u3093\u306E\u52DD\u5229\uFF01");
+  }
+  if (entry.type === "accuse_miss_elim") {
+    const pts = entry.pts.map(p => `(${p[0]}, ${p[1]})`).join(" ");
+    return /*#__PURE__*/React.createElement("div", {
+      className: "log-item eliminate"
+    }, entry.accuserName, " \u3055\u3093\u306E\u6307\u6458\u306F\u4E0D\u6210\u7ACB\uFF1A", pts, " \u306F\u5171\u5186\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002", entry.accuserName, " \u3055\u3093\u8131\u843D");
+  }
+  if (entry.type === "win") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item win"
+  }, entry.name ? `${entry.name} さんの勝利！` : "勝者なし");
+  if (entry.type === "draw") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item win"
+  }, "\u76E4\u9762\u304C\u57CB\u307E\u308A\u5F15\u304D\u5206\u3051");
+  return null;
+}
+
+/* =====================================================================
+   UI: ゲーム画面（オンライン対戦）
+   ===================================================================== */
+/* =====================================================================
+   UI: ゲーム画面（オンライン対戦）
+   ===================================================================== */
+/* =====================================================================
+   UI: 制限時間バー
+   ===================================================================== */
+/* =====================================================================
+   UI: 制限時間バー
+   ===================================================================== */
+/* =====================================================================
+   UI: 制限時間バー（残りわずかで赤く脈打つ）
+   ===================================================================== */
+function TimerBar({
+  countdown,
+  limit
+}) {
+  if (limit === null || limit === undefined || countdown === null) return null;
+  const pct = Math.max(0, Math.min(100, countdown / limit * 100));
+  const urgent = countdown <= 5;
+  const color = urgent ? "var(--danger)" : pct > 30 ? "var(--accent)" : "var(--danger)";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "timer-bar-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "timer-bar" + (urgent ? " urgent" : ""),
+    style: {
+      width: pct + "%",
+      background: color
+    }
+  }));
+}
+
+/* =====================================================================
+   UI: 残り5秒からの緊迫演出（画面の縁が赤く光り、中央に大きな数字）
+   ===================================================================== */
+function UrgentOverlay({
+  countdown
+}) {
+  const lastTick = useRef(null);
+  useEffect(() => {
+    if (countdown === null || countdown > 5 || countdown <= 0) return;
+    if (lastTick.current === countdown) return;
+    lastTick.current = countdown;
+    Sound.tick();
+  }, [countdown]);
+  if (countdown === null || countdown > 5 || countdown <= 0) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "urgent-vignette"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "urgent-count"
+  }, countdown));
+}
+
+/* =====================================================================
+   UI: 指摘結果の派手な演出（正解／不正解を大きく一瞬表示）
+   ===================================================================== */
+function ResultFlash({
+  result,
+  onDone
+}) {
+  useEffect(() => {
+    if (!result) return;
+    const t = setTimeout(() => onDone(), 1800);
+    return () => clearTimeout(t);
+  }, [result]);
+  if (!result) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "result-flash-overlay"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "result-flash-text " + (result === "hit" ? "hit" : "miss")
+  }, result === "hit" ? "正解！！" : result === "caught" ? "共円！！" : "不正解！！"));
+}
+
+/* =====================================================================
+   UI: 音のオン／オフ切り替え
+   ===================================================================== */
+function SoundToggle() {
+  const [muted, setMuted] = useState(Sound.isMuted());
+  return /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => {
+      const next = !muted;
+      Sound.setMuted(next);
+      setMuted(next);
+      if (!next) Sound.unlock();
+    }
+  }, muted ? "🔇 音OFF" : "🔊 音ON");
+}
+
+/* =====================================================================
+   UI: 対局後のリプレイ（1手ずつ再生して振り返る）
+   ===================================================================== */
+function ReplayView({
+  stones,
+  players,
+  radius,
+  onClose
+}) {
+  const [step, setStep] = useState(stones.length);
+  const [playing, setPlaying] = useState(false);
+  const [showNumbers, setShowNumbers] = useState(true);
+  useEffect(() => {
+    if (!playing) return;
+    if (step >= stones.length) {
+      setPlaying(false);
+      return;
+    }
+    const t = setTimeout(() => setStep(s => Math.min(stones.length, s + 1)), 700);
+    return () => clearTimeout(t);
+  }, [playing, step, stones.length]);
+  const shown = stones.slice(0, step);
+  // その時点で成立していた共円があれば一緒に見せる
+  const violation = step >= 4 ? findViolation(shown, shown[shown.length - 1].seq) : null;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: radius,
+    stones: shown,
+    players: players,
+    lastStoneSeq: shown.length ? shown[shown.length - 1].seq : -1,
+    status: "finished",
+    myTurn: false,
+    canPlace: false,
+    onPointClick: () => {},
+    mode: "replay",
+    selected: [],
+    resultCircle: null,
+    showNumbers: showNumbers,
+    highlightPoints: violation ? violation.map(p => ({
+      x: p.x,
+      y: p.y
+    })) : null
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "stepper-bar"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "stepper-label"
+  }, step, " / ", stones.length, " \u624B\u76EE"), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: 0,
+    max: stones.length,
+    value: step,
+    onChange: e => {
+      setPlaying(false);
+      setStep(Number(e.target.value));
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => {
+      setPlaying(false);
+      setStep(s => Math.max(0, s - 1));
+    }
+  }, "\u25C0"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-primary",
+    onClick: () => {
+      if (step >= stones.length) setStep(0);
+      setPlaying(p => !p);
+    }
+  }, playing ? "⏸" : "▶"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => {
+      setPlaying(false);
+      setStep(s => Math.min(stones.length, s + 1));
+    }
+  }, "\u25B6|")), /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", null, violation ? "この時点で共円ができています（黄色の円）" : "この時点で共円はできていません"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setShowNumbers(v => !v)
+  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: onClose
+  }, "\u30EA\u30D7\u30EC\u30A4\u3092\u9589\u3058\u308B"))));
+}
+
+/* =====================================================================
+   UI: 見逃された共円を盤面上で1組ずつ見せる
+   ===================================================================== */
+function MissedCirclesPanel({
+  stones,
+  players,
+  radius,
+  log
+}) {
+  const [missed, setMissed] = useState(null);
+  const [idx, setIdx] = useState(0);
+  if (missed === null) {
+    return /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-sm btn-ghost",
+      style: {
+        marginTop: 10
+      },
+      onClick: () => {
+        setMissed(findMissedCircles(stones, log));
+        setIdx(0);
+      }
+    }, "\u898B\u9003\u3055\u308C\u305F\u5171\u5186\u3092\u898B\u308B");
+  }
+  if (missed.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "missed-panel"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "hint-text"
+    }, "\u898B\u9003\u3055\u308C\u305F\u5171\u5186\u306F\u3042\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002"));
+  }
+  const current = missed[idx].map(p => ({
+    x: p[0],
+    y: p[1]
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "missed-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginBottom: 10
+    }
+  }, "\u898B\u9003\u3055\u308C\u305F\u5171\u5186\uFF1A", missed.length, "\u500B\uFF08", idx + 1, "\u500B\u76EE\u3092\u8868\u793A\u4E2D\uFF09"), /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: radius,
+    stones: stones,
+    players: players,
+    lastStoneSeq: -1,
+    status: "finished",
+    myTurn: false,
+    canPlace: false,
+    onPointClick: () => {},
+    mode: "review",
+    selected: [],
+    resultCircle: null,
+    showNumbers: false,
+    highlightPoints: current
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "stepper-bar"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "stepper-label"
+  }, idx + 1, " / ", missed.length), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    disabled: idx === 0,
+    onClick: () => setIdx(i => Math.max(0, i - 1))
+  }, "\u25C0 \u524D\u3078"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    disabled: idx >= missed.length - 1,
+    onClick: () => setIdx(i => Math.min(missed.length - 1, i + 1))
+  }, "\u6B21\u3078 \u25B6"), /*#__PURE__*/React.createElement("span", {
+    className: "hint-text"
+  }, current.map(p => `(${p.x}, ${p.y})`).join(" "))));
+}
+
+/* =====================================================================
+   UI: ヒートマップの凡例
+   ===================================================================== */
+function HeatLegend() {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "legend-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "legend-swatch",
+    style: {
+      background: "var(--safe)"
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "\u5B89\u5168"), /*#__PURE__*/React.createElement("span", {
+    className: "legend-swatch",
+    style: {
+      background: "rgb(232,197,90)"
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "\u5171\u5186\u304C1\u901A\u308A\u3067\u304D\u308B"), /*#__PURE__*/React.createElement("span", {
+    className: "legend-swatch",
+    style: {
+      background: "rgb(232,86,62)"
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "\u591A\u304F\u306E\u5171\u5186\u304C\u3067\u304D\u308B"));
+}
+
+/* =====================================================================
+   UI: ゲーム画面（オンライン対戦）
+   ===================================================================== */
+function GameScreen({
+  room,
+  roomId,
+  myId,
+  onPlace,
+  onAccuse,
+  onReset
+}) {
+  const [mode, setMode] = useState("place");
+  const [selected, setSelected] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [resultCircle, setResultCircle] = useState(null);
+  const [resultFlash, setResultFlash] = useState(null);
+  const [showNumbers, setShowNumbers] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  const stones = room.stones || [];
+  const players = room.players;
+  const status = room.meta.status;
+  const myTurn = status === "playing" && room.currentTurn === myId;
+  const isHost = room.meta.hostId === myId;
+  const ruleset = room.meta.ruleset || "major";
+  const timeLimit = room.meta.timeLimit || null;
+  const lastMoverPid = stones.length > 0 ? (stones.find(s => s.seq === room.lastStoneSeq) || {}).owner : null;
+  const iAmLastMover = lastMoverPid === myId;
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+  function enterAccuseMode() {
+    Sound.unlock();
+    Sound.accuseOpen();
+    setResultCircle(null);
+    if (ruleset === "nanryo") {
+      setMode("accuse");
+      setSelected([]);
+      return;
+    }
+    const last = stones.find(s => s.seq === room.lastStoneSeq);
+    setMode("accuse");
+    setSelected(last ? [last] : []);
+  }
+  function enterJudgeMode() {
+    Sound.unlock();
+    setResultCircle(null);
+    setMode("judge");
+    setSelected([]);
+  }
+  function backToPlace() {
+    setMode("place");
+    setSelected([]);
+  }
+  function onPointClick(x, y, stone) {
+    if (mode === "place") {
+      Sound.unlock();
+      Sound.place();
+      setResultCircle(null);
+      onPlace(x, y);
+      return;
+    }
+    if (!stone) return;
+    const isLast = stone.seq === room.lastStoneSeq;
+    if (mode === "accuse" && isLast && ruleset !== "nanryo") return;
+    Sound.select();
+    setSelected(prev => {
+      const exists = prev.some(p => p.seq === stone.seq);
+      if (exists) return prev.filter(p => p.seq !== stone.seq);
+      if (prev.length >= 4) return prev;
+      return [...prev, stone];
+    });
+  }
+  async function submitAccuse() {
+    if (selected.length !== 4) return;
+    const pts = selected.map(s => ({
+      x: s.x,
+      y: s.y
+    }));
+    const res = await onAccuse(selected.map(s => s.seq));
+    if (res === "hit") {
+      setToast(ruleset === "nanryo" ? "指摘成立！あなたの勝利です。" : "指摘成立！共円（または共線）でした。");
+      setResultCircle(pts);
+      setResultFlash("hit");
+      Sound.correct();
+    } else if (res === "miss") {
+      setToast(ruleset === "nanryo" ? "指摘は不成立でした。あなたの脱落です。" : "指摘は不成立でした。共円ではありません。");
+      setResultFlash("miss");
+      Sound.wrong();
+    } else {
+      setToast("指摘は受理されませんでした（次の一手が先に置かれた可能性があります）");
+    }
+    setMode("place");
+    setSelected([]);
+  }
+  const [turnCountdown, setTurnCountdown] = useState(null);
+  useEffect(() => {
+    if (!timeLimit || status !== "playing" || !myTurn || mode !== "place") {
+      setTurnCountdown(null);
+      return;
+    }
+    setTurnCountdown(timeLimit);
+    const tick = setInterval(() => setTurnCountdown(c => c !== null && c > 0 ? c - 1 : 0), 1000);
+    const timer = setTimeout(() => {
+      const cell = randomEmptyCell(stones, room.meta.boardRadius);
+      if (cell) onPlace(cell.x, cell.y);
+    }, timeLimit * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timer);
+    };
+  }, [room.currentTurn, status, mode, timeLimit]);
+  const judgeResult = mode === "judge" && selected.length === 4 ? isKyoen(selected) : null;
+  const playersOrdered = Object.entries(players).sort((a, b) => a[1].order - b[1].order);
+  const accuseLabel = ruleset === "nanryo" ? "指摘する" : "直前の一手を指摘する";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "game-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "board-col"
+  }, status === "finished" && /*#__PURE__*/React.createElement("div", {
+    className: "winner-banner"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "big"
+  }, room.winner === "draw" ? "盤面が埋まり引き分けです" : `${players[room.winner] ? players[room.winner].name : ""} さんの勝利！`), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar",
+    style: {
+      justifyContent: "center"
+    }
+  }, isHost && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: onReset
+  }, "\u3082\u3046\u4E00\u5EA6\u5BFE\u6226\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => setReplaying(v => !v)
+  }, replaying ? "リプレイを閉じる" : "リプレイを見る")), !replaying && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MissedCirclesPanel, {
+    stones: stones,
+    players: players,
+    radius: room.meta.boardRadius,
+    log: room.log
+  }))), status === "finished" && replaying && /*#__PURE__*/React.createElement(ReplayView, {
+    stones: stones,
+    players: players,
+    radius: room.meta.boardRadius,
+    onClose: () => setReplaying(false)
+  }), !replaying && /*#__PURE__*/React.createElement(React.Fragment, null, status === "playing" && /*#__PURE__*/React.createElement("div", {
+    className: "turn-banner" + (myTurn ? " mine" : "")
+  }, /*#__PURE__*/React.createElement("span", null, myTurn ? "あなたの番です。空いている格子点をクリックして石を置いてください" : `${players[room.currentTurn] ? players[room.currentTurn].name : ""} さんの番です`, turnCountdown !== null && ` （残り${turnCountdown}秒）`), mode === "place" && stones.length >= 4 && !iAmLastMover && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    onClick: enterAccuseMode
+  }, accuseLabel)), /*#__PURE__*/React.createElement(TimerBar, {
+    countdown: turnCountdown,
+    limit: timeLimit
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: room.meta.boardRadius,
+    stones: stones,
+    players: players,
+    lastStoneSeq: room.lastStoneSeq,
+    status: status,
+    myTurn: myTurn,
+    canPlace: myTurn,
+    onPointClick: onPointClick,
+    mode: mode,
+    selected: selected,
+    resultCircle: resultCircle,
+    showNumbers: showNumbers
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, mode === "place" && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: enterJudgeMode,
+    disabled: stones.length < 1
+  }, "4\u70B9\u3092\u9078\u3093\u3067\u5171\u5186\u304B\u5224\u5B9A\u3057\u3066\u307F\u308B"), mode === "judge" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: backToPlace
+  }, "\u9589\u3058\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setSelected([])
+  }, "\u9078\u629E\u3092\u30AF\u30EA\u30A2")), mode === "accuse" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    disabled: selected.length !== 4,
+    onClick: submitAccuse
+  }, "\u3053\u306E4\u70B9\u3067\u6307\u6458\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: backToPlace
+  }, "\u3084\u3081\u308B")), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setShowNumbers(v => !v)
+  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement(SoundToggle, null)), mode === "judge" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", null, "\u9078\u629E\u4E2D\uFF1A", selected.length, " / 4 \u70B9"), judgeResult !== null && /*#__PURE__*/React.createElement("span", {
+    className: "judge-result " + (judgeResult ? "yes" : "no")
+  }, judgeResult ? "→ 共円（または共線）です" : "→ 共円ではありません")), mode === "accuse" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, ruleset === "nanryo" ? /*#__PURE__*/React.createElement("span", null, "\u76F4\u524D\u306E\u4E00\u624B\u306B\u9650\u3089\u305A\u3001\u76E4\u4E0A\u306E\u3069\u306E4\u70B9\u3067\u3082\u9078\u3079\u307E\u3059\uFF08\u3042\u3068", 4 - selected.length, "\u70B9\uFF09") : /*#__PURE__*/React.createElement("span", null, "\u76F4\u524D\u306E\u4E00\u624B\uFF08\u56FA\u5B9A\uFF09\uFF0B\u3042\u3068", 4 - selected.length, "\u70B9\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u53C2\u52A0\u8005"), playersOrdered.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
+    className: "player-row",
+    key: pid
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot",
+    style: {
+      background: p.color
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "player-name"
+  }, p.name, pid === myId ? "（あなた）" : ""), status === "playing" && room.currentTurn === pid && p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\u756A"), !p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u8131\u843D")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u5BFE\u6226\u8A18\u9332"), /*#__PURE__*/React.createElement("div", {
+    className: "log-feed"
+  }, (room.log || []).slice().reverse().map((e, i) => /*#__PURE__*/React.createElement(LogLine, {
+    key: i,
+    entry: e
+  })), (!room.log || room.log.length === 0) && /*#__PURE__*/React.createElement("div", {
+    className: "log-item"
+  }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), /*#__PURE__*/React.createElement(UrgentOverlay, {
+    countdown: turnCountdown
+  }), /*#__PURE__*/React.createElement(ResultFlash, {
+    result: resultFlash,
+    onDone: () => setResultFlash(null)
+  }), toast && /*#__PURE__*/React.createElement("div", {
+    className: "toast"
+  }, toast));
+}
+
+/* =====================================================================
+   UI: 1人プレイ（オフライン・CPU対戦）画面
+   ===================================================================== */
+function LocalGameScreen({
+  state,
+  onChange,
+  onExit
+}) {
+  const [mode, setMode] = useState("place");
+  const [selected, setSelected] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [cpuThinking, setCpuThinking] = useState(false);
+  const [resultCircle, setResultCircle] = useState(null);
+  const [resultBad, setResultBad] = useState(false);
+  const [resultFlash, setResultFlash] = useState(null);
+  const [showNumbers, setShowNumbers] = useState(false);
+  const [heatOn, setHeatOn] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  const stones = state.stones || [];
+  const players = state.players;
+  const status = state.meta.status;
+  const myTurn = status === "playing" && state.currentTurn === "human";
+  const currentIsCPU = status === "playing" && players[state.currentTurn] && players[state.currentTurn].isCPU;
+  const ruleset = state.meta.ruleset || "major";
+  const timeLimit = state.meta.timeLimit || null;
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ヒートマップは重い計算なので、表示がONのときだけ・盤面が変わったときだけ計算する
+  const heatmap = useMemo(() => {
+    if (!heatOn || status !== "playing") return null;
+    return dangerMap(stones, state.meta.boardRadius);
+  }, [heatOn, stones.length, status, state.meta.boardRadius]);
+  function enterAccuseMode() {
+    Sound.unlock();
+    Sound.accuseOpen();
+    setResultCircle(null);
+    setResultBad(false);
+    if (ruleset === "nanryo") {
+      setMode("accuse");
+      setSelected([]);
+      return;
+    }
+    const last = stones.find(s => s.seq === state.lastStoneSeq);
+    setMode("accuse");
+    setSelected(last ? [last] : []);
+  }
+  function enterJudgeMode() {
+    Sound.unlock();
+    setResultCircle(null);
+    setResultBad(false);
+    setMode("judge");
+    setSelected([]);
+  }
+  function backToPlace() {
+    setMode("place");
+    setSelected([]);
+  }
+  // あなたの着手を反映する。CPUに共円を見抜かれて脱落した場合は、
+  // その4点でできていた円を盤面に描いて「不正解！！」を出す。
+  function applyHumanPlace(next) {
+    onChange(next);
+    if (next.humanLost) {
+      const lastLog = (next.log || []).slice().reverse().find(e => e.type === "eliminate");
+      if (lastLog && lastLog.pts) {
+        setResultCircle(lastLog.pts.map(p => ({ x: p[0], y: p[1] })));
+      }
+      setResultBad(true);
+      setResultFlash("caught");
+      Sound.wrong();
+    }
+  }
+  function onPointClick(x, y, stone) {
+    if (mode === "place") {
+      if (!myTurn) return;
+      Sound.unlock();
+      Sound.place();
+      setResultCircle(null);
+    setResultBad(false);
+      applyHumanPlace(localPlace(state, "human", x, y, true));
+      return;
+    }
+    if (!stone) return;
+    const isLast = stone.seq === state.lastStoneSeq;
+    if (mode === "accuse" && isLast && ruleset !== "nanryo") return;
+    Sound.select();
+    setSelected(prev => {
+      const exists = prev.some(p => p.seq === stone.seq);
+      if (exists) return prev.filter(p => p.seq !== stone.seq);
+      if (prev.length >= 4) return prev;
+      return [...prev, stone];
+    });
+  }
+  function submitAccuse() {
+    if (selected.length !== 4) return;
+    const pts = selected.map(s => ({
+      x: s.x,
+      y: s.y
+    }));
+    if (ruleset === "nanryo") {
+      let {
+        room,
+        result
+      } = localAccuseAny(state, selected.map(s => s.seq), "human");
+      if (result === "miss" && room.players.human && !room.players.human.active) {
+        room = {
+          ...room,
+          meta: {
+            ...room.meta,
+            status: "finished"
+          },
+          winner: null,
+          humanLost: true
+        };
+      }
+      onChange(room);
+      if (result === "hit") {
+        setToast("指摘成立！あなたの勝利です。");
+        setResultCircle(pts);
+        setResultFlash("hit");
+        Sound.correct();
+      } else if (result === "miss") {
+        setToast("指摘は不成立でした。あなたの脱落です。");
+        setResultFlash("miss");
+        Sound.wrong();
+      } else setToast("指摘は受理されませんでした");
+      setMode("place");
+      setSelected([]);
+      return;
+    }
+    const {
+      room,
+      result
+    } = localAccuse(state, selected.map(s => s.seq), state.players.human.name);
+    onChange(room);
+    if (result === "hit") {
+      setToast("指摘成立！共円（または共線）でした。");
+      setResultCircle(pts);
+      setResultFlash("hit");
+      Sound.correct();
+    } else if (result === "miss") {
+      setToast("指摘は不成立でした。共円ではありません。");
+      setResultFlash("miss");
+      Sound.wrong();
+    } else setToast("指摘は受理されませんでした");
+    setMode("place");
+    setSelected([]);
+  }
+  function letCpuMove() {
+    const cpuId = state.currentTurn;
+    const move = cpuChooseMove(stones, state.meta.boardRadius, state.meta.difficulty);
+    if (!move) return;
+    setResultCircle(null);
+    setResultBad(false);
+    setCpuThinking(true);
+    setTimeout(() => {
+      Sound.place();
+      onChange(localPlace(state, cpuId, move.x, move.y, false));
+      setCpuThinking(false);
+    }, 450);
+  }
+  const cpuPlayerCount = Object.values(players).filter(p => p.isCPU).length;
+  const isOneVOne = cpuPlayerCount === 1;
+  const [countdown, setCountdown] = useState(null);
+  useEffect(() => {
+    if (status !== "playing" || !currentIsCPU || !isOneVOne || mode !== "place") {
+      setCountdown(null);
+      return;
+    }
+    setCountdown(3);
+    const tick = setInterval(() => setCountdown(c => c !== null && c > 0 ? c - 1 : 0), 1000);
+    const timer = setTimeout(() => letCpuMove(), 3000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timer);
+    };
+  }, [state.currentTurn, status, mode, isOneVOne]);
+  const [turnCountdown, setTurnCountdown] = useState(null);
+  useEffect(() => {
+    if (!timeLimit || status !== "playing" || !myTurn || mode !== "place") {
+      setTurnCountdown(null);
+      return;
+    }
+    setTurnCountdown(timeLimit);
+    const tick = setInterval(() => setTurnCountdown(c => c !== null && c > 0 ? c - 1 : 0), 1000);
+    const timer = setTimeout(() => {
+      const cell = randomEmptyCell(stones, state.meta.boardRadius);
+      if (cell) applyHumanPlace(localPlace(state, "human", cell.x, cell.y, true));
+    }, timeLimit * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timer);
+    };
+  }, [state.currentTurn, status, mode, timeLimit]);
+  const judgeResult = mode === "judge" && selected.length === 4 ? isKyoen(selected) : null;
+  const playersOrdered = Object.entries(players).sort((a, b) => a[1].order - b[1].order);
+  const accuseLabel = ruleset === "nanryo" ? "指摘する" : "直前の一手を指摘する";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "game-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "board-col"
+  }, status === "finished" && /*#__PURE__*/React.createElement("div", {
+    className: "winner-banner"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "big"
+  }, state.humanLost ? "あなたの脱落です" : state.winner === "draw" ? "盤面が埋まり引き分けです" : `${players[state.winner] ? players[state.winner].name : ""} さんの勝利！`), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar",
+    style: {
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: onExit
+  }, "\u8A2D\u5B9A\u306B\u623B\u3063\u3066\u3082\u3046\u4E00\u5EA6"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => setReplaying(v => !v)
+  }, replaying ? "リプレイを閉じる" : "リプレイを見る")), !replaying && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MissedCirclesPanel, {
+    stones: stones,
+    players: players,
+    radius: state.meta.boardRadius,
+    log: state.log
+  }))), status === "finished" && replaying && /*#__PURE__*/React.createElement(ReplayView, {
+    stones: stones,
+    players: players,
+    radius: state.meta.boardRadius,
+    onClose: () => setReplaying(false)
+  }), !replaying && /*#__PURE__*/React.createElement(React.Fragment, null, status === "playing" && /*#__PURE__*/React.createElement("div", {
+    className: "turn-banner" + (myTurn ? " mine" : "")
+  }, /*#__PURE__*/React.createElement("span", null, myTurn ? "あなたの番です。空いている格子点をクリックして石を置いてください" : `${players[state.currentTurn].name} の番です`, turnCountdown !== null && ` （残り${turnCountdown}秒）`), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, mode === "place" && stones.length >= 4 && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    onClick: enterAccuseMode
+  }, accuseLabel), mode === "place" && currentIsCPU && isOneVOne && /*#__PURE__*/React.createElement("span", {
+    className: "hint-text"
+  }, players[state.currentTurn].name, " \u304C\u8003\u3048\u3066\u3044\u307E\u3059\u2026", countdown ? `(あと${countdown}秒)` : ""), mode === "place" && currentIsCPU && !isOneVOne && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-primary",
+    disabled: cpuThinking,
+    onClick: letCpuMove
+  }, cpuThinking ? "CPU思考中…" : `${players[state.currentTurn].name}に手を打たせる`))), /*#__PURE__*/React.createElement(TimerBar, {
+    countdown: turnCountdown,
+    limit: timeLimit
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: state.meta.boardRadius,
+    stones: stones,
+    players: players,
+    lastStoneSeq: state.lastStoneSeq,
+    status: status,
+    myTurn: myTurn,
+    canPlace: myTurn,
+    onPointClick: onPointClick,
+    mode: mode,
+    selected: selected,
+    resultCircle: resultCircle,
+    resultBad: resultBad,
+    showNumbers: showNumbers,
+    heatmap: heatmap
+  })), heatOn && status === "playing" && /*#__PURE__*/React.createElement(HeatLegend, null), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, mode === "place" && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: enterJudgeMode,
+    disabled: stones.length < 1
+  }, "4\u70B9\u3092\u9078\u3093\u3067\u5171\u5186\u304B\u5224\u5B9A\u3057\u3066\u307F\u308B"), mode === "judge" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: backToPlace
+  }, "\u9589\u3058\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setSelected([])
+  }, "\u9078\u629E\u3092\u30AF\u30EA\u30A2")), mode === "accuse" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    disabled: selected.length !== 4,
+    onClick: submitAccuse
+  }, "\u3053\u306E4\u70B9\u3067\u6307\u6458\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: backToPlace
+  }, "\u3084\u3081\u308B")), status === "playing" && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm" + (heatOn ? " btn-primary" : ""),
+    onClick: () => setHeatOn(v => !v)
+  }, "\u5371\u967A\u5EA6\u30DE\u30C3\u30D7"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setShowNumbers(v => !v)
+  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement(SoundToggle, null), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: onExit
+  }, "\u7DF4\u7FD2\u3092\u7D42\u3048\u308B")), mode === "judge" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", null, "\u9078\u629E\u4E2D\uFF1A", selected.length, " / 4 \u70B9"), judgeResult !== null && /*#__PURE__*/React.createElement("span", {
+    className: "judge-result " + (judgeResult ? "yes" : "no")
+  }, judgeResult ? "→ 共円（または共線）です" : "→ 共円ではありません")), mode === "accuse" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, ruleset === "nanryo" ? /*#__PURE__*/React.createElement("span", null, "\u76F4\u524D\u306E\u4E00\u624B\u306B\u9650\u3089\u305A\u3001\u76E4\u4E0A\u306E\u3069\u306E4\u70B9\u3067\u3082\u9078\u3079\u307E\u3059\uFF08\u3042\u3068", 4 - selected.length, "\u70B9\uFF09") : /*#__PURE__*/React.createElement("span", null, "\u76F4\u524D\u306E\u4E00\u624B\uFF08\u56FA\u5B9A\uFF09\uFF0B\u3042\u3068", 4 - selected.length, "\u70B9\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u53C2\u52A0\u8005"), playersOrdered.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
+    className: "player-row",
+    key: pid
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot",
+    style: {
+      background: p.color
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "player-name"
+  }, p.name, pid === "human" ? "（あなた）" : ""), status === "playing" && state.currentTurn === pid && p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\u756A"), !p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u8131\u843D")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u5BFE\u6226\u8A18\u9332"), /*#__PURE__*/React.createElement("div", {
+    className: "log-feed"
+  }, (state.log || []).slice().reverse().map((e, i) => /*#__PURE__*/React.createElement(LogLine, {
+    key: i,
+    entry: e
+  })), (!state.log || state.log.length === 0) && /*#__PURE__*/React.createElement("div", {
+    className: "log-item"
+  }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), /*#__PURE__*/React.createElement(UrgentOverlay, {
+    countdown: turnCountdown
+  }), /*#__PURE__*/React.createElement(ResultFlash, {
+    result: resultFlash,
+    onDone: () => setResultFlash(null)
+  }), toast && /*#__PURE__*/React.createElement("div", {
+    className: "toast"
+  }, toast));
+}
+
+/* =====================================================================
+   UI: 友人と対戦（オフライン・同一画面のホットシート）画面
+   ===================================================================== */
+function HotseatGameScreen({
+  state,
+  onChange,
+  onExit,
+  onRematch
+}) {
+  const [mode, setMode] = useState("place");
+  const [selected, setSelected] = useState([]);
+  const [accuserPid, setAccuserPid] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [resultCircle, setResultCircle] = useState(null);
+  const [resultFlash, setResultFlash] = useState(null);
+  const [showNumbers, setShowNumbers] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  const stones = state.stones || [];
+  const players = state.players;
+  const status = state.meta.status;
+  const canAct = status === "playing";
+  const ruleset = state.meta.ruleset || "major";
+  const timeLimit = state.meta.timeLimit || null;
+  const lastMoverPid = stones.length > 0 ? (stones.find(s => s.seq === state.lastStoneSeq) || {}).owner : null;
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+  function enterAccuseMode() {
+    Sound.unlock();
+    Sound.accuseOpen();
+    setResultCircle(null);
+    setMode("pick-accuser");
+    setSelected([]);
+    setAccuserPid(null);
+  }
+  function pickAccuser(pid) {
+    setAccuserPid(pid);
+    if (ruleset === "nanryo") setSelected([]);else {
+      const last = stones.find(s => s.seq === state.lastStoneSeq);
+      setSelected(last ? [last] : []);
+    }
+    setMode("accuse");
+  }
+  function enterJudgeMode() {
+    Sound.unlock();
+    setResultCircle(null);
+    setMode("judge");
+    setSelected([]);
+  }
+  function backToPlace() {
+    setMode("place");
+    setSelected([]);
+    setAccuserPid(null);
+  }
+  function onPointClick(x, y, stone) {
+    if (mode === "place") {
+      if (!canAct) return;
+      Sound.unlock();
+      Sound.place();
+      setResultCircle(null);
+      onChange(localPlace(state, state.currentTurn, x, y, false));
+      return;
+    }
+    if (!stone) return;
+    const isLast = stone.seq === state.lastStoneSeq;
+    if (mode === "accuse" && isLast && ruleset !== "nanryo") return;
+    Sound.select();
+    setSelected(prev => {
+      const exists = prev.some(p => p.seq === stone.seq);
+      if (exists) return prev.filter(p => p.seq !== stone.seq);
+      if (prev.length >= 4) return prev;
+      return [...prev, stone];
+    });
+  }
+  function submitAccuse() {
+    if (selected.length !== 4) return;
+    const pts = selected.map(s => ({
+      x: s.x,
+      y: s.y
+    }));
+    if (ruleset === "nanryo") {
+      const {
+        room,
+        result
+      } = localAccuseAny(state, selected.map(s => s.seq), accuserPid);
+      onChange(room);
+      if (result === "hit") {
+        setToast(`${players[accuserPid] ? players[accuserPid].name : ""} さんの勝利！`);
+        setResultCircle(pts);
+        setResultFlash("hit");
+        Sound.correct();
+      } else if (result === "miss") {
+        setToast(`指摘は不成立でした。${players[accuserPid] ? players[accuserPid].name : ""} さんの脱落です。`);
+        setResultFlash("miss");
+        Sound.wrong();
+      } else setToast("指摘は受理されませんでした");
+      setMode("place");
+      setSelected([]);
+      setAccuserPid(null);
+      return;
+    }
+    const {
+      room,
+      result
+    } = localAccuse(state, selected.map(s => s.seq), players[accuserPid] ? players[accuserPid].name : null);
+    onChange(room);
+    if (result === "hit") {
+      setToast("指摘成立！共円（または共線）でした。");
+      setResultCircle(pts);
+      setResultFlash("hit");
+      Sound.correct();
+    } else if (result === "miss") {
+      setToast("指摘は不成立でした。共円ではありません。");
+      setResultFlash("miss");
+      Sound.wrong();
+    } else setToast("指摘は受理されませんでした");
+    setMode("place");
+    setSelected([]);
+    setAccuserPid(null);
+  }
+  const [turnCountdown, setTurnCountdown] = useState(null);
+  useEffect(() => {
+    if (!timeLimit || !canAct || mode !== "place") {
+      setTurnCountdown(null);
+      return;
+    }
+    setTurnCountdown(timeLimit);
+    const tick = setInterval(() => setTurnCountdown(c => c !== null && c > 0 ? c - 1 : 0), 1000);
+    const timer = setTimeout(() => {
+      const cell = randomEmptyCell(stones, state.meta.boardRadius);
+      if (cell) onChange(localPlace(state, state.currentTurn, cell.x, cell.y, false));
+    }, timeLimit * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timer);
+    };
+  }, [state.currentTurn, status, mode, timeLimit]);
+  const judgeResult = mode === "judge" && selected.length === 4 ? isKyoen(selected) : null;
+  const playersOrdered = Object.entries(players).sort((a, b) => a[1].order - b[1].order);
+  const accuseLabel = ruleset === "nanryo" ? "指摘する" : "直前の一手を指摘する";
+  const activePlayers = playersOrdered.filter(([pid, p]) => p.active && pid !== lastMoverPid);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "game-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "board-col"
+  }, status === "finished" && /*#__PURE__*/React.createElement("div", {
+    className: "winner-banner"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "big"
+  }, state.winner === "draw" ? "盤面が埋まり引き分けです" : `${players[state.winner] ? players[state.winner].name : ""} さんの勝利！`), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar",
+    style: {
+      justifyContent: "center"
+    }
+  }, onRematch && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-primary",
+    onClick: () => { Sound.unlock(); onRematch(); }
+  }, "\u540C\u3058\u8A2D\u5B9A\u3067\u518D\u6226\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: onExit
+  }, "\u8A2D\u5B9A\u306B\u623B\u3063\u3066\u3082\u3046\u4E00\u5EA6"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => setReplaying(v => !v)
+  }, replaying ? "リプレイを閉じる" : "リプレイを見る")), !replaying && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MissedCirclesPanel, {
+    stones: stones,
+    players: players,
+    radius: state.meta.boardRadius,
+    log: state.log
+  }))), status === "finished" && replaying && /*#__PURE__*/React.createElement(ReplayView, {
+    stones: stones,
+    players: players,
+    radius: state.meta.boardRadius,
+    onClose: () => setReplaying(false)
+  }), !replaying && /*#__PURE__*/React.createElement(React.Fragment, null, status === "playing" && /*#__PURE__*/React.createElement("div", {
+    className: "turn-banner mine"
+  }, /*#__PURE__*/React.createElement("span", null, players[state.currentTurn].name, " \u3055\u3093\u306E\u756A\u3067\u3059\u3002\u7AEF\u672B\u3092\u6E21\u3057\u3066\u3001\u7A7A\u3044\u3066\u3044\u308B\u683C\u5B50\u70B9\u3092\u30BF\u30C3\u30D7\u3057\u3066\u304F\u3060\u3055\u3044", turnCountdown !== null && ` （残り${turnCountdown}秒）`), mode === "place" && stones.length >= 4 && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    onClick: enterAccuseMode
+  }, accuseLabel)), /*#__PURE__*/React.createElement(TimerBar, {
+    countdown: turnCountdown,
+    limit: timeLimit
+  }), mode === "accuse" && accuserPid && /*#__PURE__*/React.createElement("div", {
+    className: "accuser-spotlight"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "name"
+  }, players[accuserPid].name), /*#__PURE__*/React.createElement("div", {
+    className: "sub"
+  }, "\u3055\u3093\u304C\u6307\u6458\u3057\u307E\u3059")), /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: state.meta.boardRadius,
+    stones: stones,
+    players: players,
+    lastStoneSeq: state.lastStoneSeq,
+    status: status,
+    myTurn: canAct,
+    canPlace: canAct,
+    onPointClick: onPointClick,
+    mode: mode,
+    selected: selected,
+    resultCircle: resultCircle,
+    showNumbers: showNumbers
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, mode === "place" && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: enterJudgeMode,
+    disabled: stones.length < 1
+  }, "4\u70B9\u3092\u9078\u3093\u3067\u5171\u5186\u304B\u5224\u5B9A\u3057\u3066\u307F\u308B"), mode === "judge" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: backToPlace
+  }, "\u9589\u3058\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setSelected([])
+  }, "\u9078\u629E\u3092\u30AF\u30EA\u30A2")), mode === "accuse" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-danger",
+    disabled: selected.length !== 4,
+    onClick: submitAccuse
+  }, "\u3053\u306E4\u70B9\u3067\u6307\u6458\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: backToPlace
+  }, "\u3084\u3081\u308B")), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setShowNumbers(v => !v)
+  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement(SoundToggle, null), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: onExit
+  }, "\u5BFE\u6226\u3092\u7D42\u3048\u308B")), mode === "judge" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", null, "\u9078\u629E\u4E2D\uFF1A", selected.length, " / 4 \u70B9"), judgeResult !== null && /*#__PURE__*/React.createElement("span", {
+    className: "judge-result " + (judgeResult ? "yes" : "no")
+  }, judgeResult ? "→ 共円（または共線）です" : "→ 共円ではありません")), mode === "accuse" && /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, ruleset === "nanryo" ? /*#__PURE__*/React.createElement("span", null, "\u76E4\u4E0A\u306E\u3069\u306E4\u70B9\u3067\u3082\u9078\u3079\u307E\u3059\uFF08\u3042\u3068", 4 - selected.length, "\u70B9\uFF09") : /*#__PURE__*/React.createElement("span", null, "\u76F4\u524D\u306E\u4E00\u624B\uFF08\u56FA\u5B9A\uFF09\uFF0B\u3042\u3068", 4 - selected.length, "\u70B9\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u53C2\u52A0\u8005"), playersOrdered.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
+    className: "player-row",
+    key: pid
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot",
+    style: {
+      background: p.color
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "player-name"
+  }, p.name), status === "playing" && state.currentTurn === pid && p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\u756A"), !p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u8131\u843D")))), /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u5BFE\u6226\u8A18\u9332"), /*#__PURE__*/React.createElement("div", {
+    className: "log-feed"
+  }, (state.log || []).slice().reverse().map((e, i) => /*#__PURE__*/React.createElement(LogLine, {
+    key: i,
+    entry: e
+  })), (!state.log || state.log.length === 0) && /*#__PURE__*/React.createElement("div", {
+    className: "log-item"
+  }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), mode === "pick-accuser" && /*#__PURE__*/React.createElement("div", {
+    className: "modal-backdrop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-title"
+  }, "\u8AB0\u304C\u6307\u6458\u3057\u307E\u3059\u304B\uFF1F"), /*#__PURE__*/React.createElement("div", {
+    className: "modal-buttons"
+  }, activePlayers.map(([pid, p]) => /*#__PURE__*/React.createElement("button", {
+    key: pid,
+    className: "btn btn-block",
+    onClick: () => pickAccuser(pid)
+  }, p.name))), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 12
+    },
+    onClick: backToPlace
+  }, "\u3084\u3081\u308B"))), /*#__PURE__*/React.createElement(UrgentOverlay, {
+    countdown: turnCountdown
+  }), /*#__PURE__*/React.createElement(ResultFlash, {
+    result: resultFlash,
+    onDone: () => setResultFlash(null)
+  }), toast && /*#__PURE__*/React.createElement("div", {
+    className: "toast"
+  }, toast));
+}
+
+/* =====================================================================
+   UI: 問題モード（詰め共円）— 1人用パズル
+   find … 共円になっている4点を選んで指摘する
+   safe … 共円を作らずに置けるマスを1つ見つけてタップする
+   ===================================================================== */
+function PuzzleScreen({
+  onExit
+}) {
+  const [level, setLevel] = useState(1);
+  const [puzzle, setPuzzle] = useState(() => generatePuzzle(1));
+  const [phase, setPhase] = useState("solving"); // solving | answered
+  const [selected, setSelected] = useState([]);
+  const [chosenCell, setChosenCell] = useState(null);
+  const [correct, setCorrect] = useState(false);
+  const [flash, setFlash] = useState(null);
+  const [score, setScore] = useState({
+    ok: 0,
+    total: 0
+  });
+  const [revealIdx, setRevealIdx] = useState(0);
+  const dummyPlayers = {
+    puzzle: {
+      name: "問題",
+      color: "#4fa8d8",
+      order: 0,
+      active: true
+    }
+  };
+  function nextPuzzle(lv) {
+    setPuzzle(generatePuzzle(lv || level));
+    setPhase("solving");
+    setSelected([]);
+    setChosenCell(null);
+    setCorrect(false);
+    setRevealIdx(0);
+  }
+  function submitFind() {
+    if (selected.length !== 4) return;
+    const ok = isKyoen(selected);
+    setCorrect(ok);
+    setPhase("answered");
+    setScore(s => ({
+      ok: s.ok + (ok ? 1 : 0),
+      total: s.total + 1
+    }));
+    setFlash(ok ? "hit" : "miss");
+    if (ok) Sound.correct();else Sound.wrong();
+  }
+  function answerSafe(x, y) {
+    const ok = !wouldViolate({
+      x,
+      y
+    }, puzzle.stones);
+    setChosenCell({
+      x,
+      y
+    });
+    setCorrect(ok);
+    setPhase("answered");
+    setScore(s => ({
+      ok: s.ok + (ok ? 1 : 0),
+      total: s.total + 1
+    }));
+    setFlash(ok ? "hit" : "miss");
+    if (ok) Sound.correct();else Sound.wrong();
+  }
+  function onPointClick(x, y, stone) {
+    if (phase !== "solving") return;
+    if (puzzle.kind === "safe") {
+      if (stone) return;
+      Sound.unlock();
+      Sound.place();
+      answerSafe(x, y);
+      return;
+    }
+    // find: 石を4つまで選ぶ
+    if (!stone) return;
+    Sound.unlock();
+    Sound.select();
+    setSelected(prev => {
+      const exists = prev.some(p => p.seq === stone.seq);
+      if (exists) return prev.filter(p => p.seq !== stone.seq);
+      if (prev.length >= 4) return prev;
+      return [...prev, stone];
+    });
+  }
+
+  // 答え合わせで盤面に描く図形
+  let highlight = null;
+  let resultCircle = null;
+  let resultBad = false;
+  let allCircles = [];
+  if (phase === "answered") {
+    if (puzzle.kind === "find") {
+      allCircles = listCircles(puzzle.stones);
+      if (correct) {
+        // 正解した4点をそのまま見せる
+        resultCircle = selected.map(s => ({
+          x: s.x,
+          y: s.y
+        }));
+      } else if (allCircles.length > 0) {
+        // 不正解なら、正しい共円を1組ずつ見せる
+        highlight = allCircles[Math.min(revealIdx, allCircles.length - 1)];
+      }
+    } else if (!correct && chosenCell) {
+      const withChosen = puzzle.stones.concat([{
+        x: chosenCell.x,
+        y: chosenCell.y,
+        owner: "puzzle",
+        seq: puzzle.stones.length
+      }]);
+      const v = findViolation(withChosen, puzzle.stones.length);
+      if (v) {
+        resultCircle = v.map(p => ({
+          x: p.x,
+          y: p.y
+        }));
+        resultBad = true;
+      }
+    }
+  }
+  const displayStones = phase === "answered" && puzzle.kind === "safe" && chosenCell ? puzzle.stones.concat([{
+    x: chosenCell.x,
+    y: chosenCell.y,
+    owner: "puzzle",
+    seq: puzzle.stones.length
+  }]) : puzzle.stones;
+  const boardMode = phase === "solving" ? puzzle.kind === "safe" ? "puzzle-pick" : "accuse" : "review";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "screen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "game-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "board-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "puzzle-prompt"
+  }, puzzle.kind === "find" ? "この盤面には共円（または共線）になっている4点があります。その4点を選んで指摘してください。" : "共円を作らずに置けるマスを1つ見つけてタップしてください。", /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginTop: 6
+    }
+  }, "\u30EC\u30D9\u30EB", level, "\u3000\u6B63\u89E3\u6570 ", /*#__PURE__*/React.createElement("span", {
+    className: "puzzle-score"
+  }, score.ok, " / ", score.total), puzzle.kind === "find" && phase === "solving" && `　（この盤面には ${puzzle.answer} 組あります）`)), /*#__PURE__*/React.createElement("div", {
+    className: "board-svg-wrap"
+  }, /*#__PURE__*/React.createElement(Board, {
+    radius: puzzle.radius,
+    stones: displayStones,
+    players: dummyPlayers,
+    lastStoneSeq: -1,
+    status: "finished",
+    myTurn: phase === "solving",
+    canPlace: phase === "solving" && puzzle.kind === "safe",
+    onPointClick: onPointClick,
+    mode: boardMode,
+    selected: phase === "solving" ? selected : [],
+    resultCircle: resultCircle,
+    resultBad: resultBad,
+    showNumbers: false,
+    highlightPoints: highlight
+  })), phase === "solving" && puzzle.kind === "find" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger",
+    disabled: selected.length !== 4,
+    onClick: submitFind
+  }, "\u3053\u306E4\u70B9\u3067\u6307\u6458\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: () => setSelected([])
+  }, "\u9078\u629E\u3092\u30AF\u30EA\u30A2")), /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", null, "\u9078\u629E\u4E2D\uFF1A", selected.length, " / 4 \u70B9"))), phase === "answered" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "selection-info"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "judge-result " + (correct ? "no" : "yes")
+  }, correct ? puzzle.kind === "find" ? "正解！ この4点は共円です" : "正解！ そのマスは安全です" : puzzle.kind === "find" ? "不正解… この4点は共円ではありません" : "不正解… そこは共円ができてしまいます")), puzzle.kind === "find" && !correct && allCircles.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "stepper-bar"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "stepper-label"
+  }, "\u6B63\u89E3 ", revealIdx + 1, " / ", allCircles.length), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    disabled: revealIdx === 0,
+    onClick: () => setRevealIdx(i => Math.max(0, i - 1))
+  }, "\u25C0 \u524D\u3078"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    disabled: revealIdx >= allCircles.length - 1,
+    onClick: () => setRevealIdx(i => Math.min(allCircles.length - 1, i + 1))
+  }, "\u6B21\u3078 \u25B6"), /*#__PURE__*/React.createElement("span", {
+    className: "hint-text"
+  }, allCircles[Math.min(revealIdx, allCircles.length - 1)].map(p => `(${p.x}, ${p.y})`).join(" "))), puzzle.kind === "find" && correct && puzzle.answer > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      maxWidth: 640,
+      width: "100%",
+      marginTop: 8
+    }
+  }, "\u3053\u306E\u76E4\u9762\u306B\u306F\u5171\u5186\u304C\u5168\u90E8\u3067 ", puzzle.answer, " \u7D44\u3042\u308A\u307E\u3057\u305F\u3002"), puzzle.kind === "safe" && correct && /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      maxWidth: 640,
+      width: "100%",
+      marginTop: 8
+    }
+  }, "\u3053\u306E\u76E4\u9762\u3067\u5B89\u5168\u306B\u7F6E\u3051\u308B\u30DE\u30B9\u306F\u5168\u90E8\u3067 ", puzzle.answer, " \u304B\u6240\u3042\u308A\u307E\u3057\u305F\u3002"), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary",
+    onClick: () => nextPuzzle()
+  }, "\u6B21\u306E\u554F\u984C\u3078"))), /*#__PURE__*/React.createElement("div", {
+    className: "mode-bar"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "stepper-label"
+  }, "\u30EC\u30D9\u30EB"), [1, 2, 3].map(lv => /*#__PURE__*/React.createElement("button", {
+    key: lv,
+    className: "btn btn-sm" + (level === lv ? " btn-primary" : ""),
+    onClick: () => {
+      setLevel(lv);
+      nextPuzzle(lv);
+    }
+  }, lv)), /*#__PURE__*/React.createElement(SoundToggle, null), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: onExit
+  }, "\u554F\u984C\u30E2\u30FC\u30C9\u3092\u7D42\u3048\u308B"))), /*#__PURE__*/React.createElement("div", {
+    className: "panel-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u554F\u984C\u30E2\u30FC\u30C9\u306B\u3064\u3044\u3066"), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text"
+  }, "\u5BFE\u6226\u306A\u3057\u3067\u5171\u5186\u306E\u611F\u899A\u3092\u3064\u304B\u3080\u7DF4\u7FD2\u3067\u3059\u3002\u300C\u5171\u5186\u306E4\u70B9\u3092\u6307\u6458\u3059\u308B\u300D\u554F\u984C\u3068\u3001\u300C\u5B89\u5168\u306B\u7F6E\u3051\u308B\u30DE\u30B9\u3092\u63A2\u3059\u300D\u554F\u984C\u304C\u30E9\u30F3\u30C0\u30E0\u306B\u51FA\u307E\u3059\u3002 \u5BFE\u6226\u3068\u540C\u3058\u64CD\u4F5C\u3067\u6307\u6458\u306E\u7DF4\u7FD2\u304C\u3067\u304D\u307E\u3059\u3002")), /*#__PURE__*/React.createElement("div", {
+    className: "panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "\u6210\u7E3E"), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text"
+  }, "\u6B63\u89E3 ", /*#__PURE__*/React.createElement("span", {
+    className: "puzzle-score"
+  }, score.ok), " / \u6311\u6226 ", /*#__PURE__*/React.createElement("span", {
+    className: "puzzle-score"
+  }, score.total), score.total > 0 && `（正答率 ${Math.round(score.ok / score.total * 100)}%）`)))), /*#__PURE__*/React.createElement(ResultFlash, {
+    result: flash,
+    onDone: () => setFlash(null)
+  }));
+}
+
+/* =====================================================================
+   セットアップ未完了画面
+   ===================================================================== */
+function SetupNeeded() {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "setup-wrap"
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      marginBottom: 16
+    }
+  }, "Firebase \u306E\u8A2D\u5B9A\u304C\u5FC5\u8981\u3067\u3059"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: "var(--ink-dim)",
+      fontSize: 14
+    }
+  }, "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5192\u982D\u306E\u30B3\u30E1\u30F3\u30C8\u3001\u307E\u305F\u306F <script> \u5185\u306E ", /*#__PURE__*/React.createElement("span", {
+    className: "mono"
+  }, "FIREBASE_CONFIG"), " \u304C\u307E\u3060\u66F8\u304D\u63DB\u3048\u3089\u308C\u3066\u3044\u307E\u305B\u3093\u3002"), /*#__PURE__*/React.createElement("ol", null, /*#__PURE__*/React.createElement("li", null, "Firebase \u30B3\u30F3\u30BD\u30FC\u30EB\u3067\u65B0\u898F\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u4F5C\u6210"), /*#__PURE__*/React.createElement("li", null, "Realtime Database \u3092\u4F5C\u6210\uFF08\u30C6\u30B9\u30C8\u30E2\u30FC\u30C9\u3067OK\uFF09"), /*#__PURE__*/React.createElement("li", null, "\u30A6\u30A7\u30D6\u30A2\u30D7\u30EA\u3092\u8FFD\u52A0\u3057\u3001\u8868\u793A\u3055\u308C\u305F\u8A2D\u5B9A\u5024\u3092 ", /*#__PURE__*/React.createElement("span", {
+    className: "mono"
+  }, "FIREBASE_CONFIG"), " \u306B\u8CBC\u308A\u4ED8\u3051"), /*#__PURE__*/React.createElement("li", null, "Realtime Database \u306E\u300C\u30EB\u30FC\u30EB\u300D\u3092 rooms \u4EE5\u4E0B read/write true \u306B\u8A2D\u5B9A")), /*#__PURE__*/React.createElement("pre", null, `{
+  "rules": {
+    "rooms": {
+      "$roomId": { ".read": true, ".write": true }
+    }
+  }
+}`));
+}
+
+/* =====================================================================
+   App ルート
+   ===================================================================== */
+function App() {
+  const [roomId, setRoomId] = useState(() => {
+    // オンライン対戦が未設定のデモ版では、URLの # 以降は無視してホーム画面を出す
+    if (CONFIG_IS_PLACEHOLDER) return null;
+    const h = location.hash.replace("#", "").toUpperCase();
+    return h || null;
+  });
+  const [localState, setLocalState] = useState(null); // null = 1人プレイ未開始
+  const [hotseatState, setHotseatState] = useState(null); // null = 友人と対戦（オフライン）未開始
+  const [hotseatCfg, setHotseatCfg] = useState(null); // 再戦用に直前の設定（名前・人数・ルールなど）を覚えておく
+  const [hotseatGameId, setHotseatGameId] = useState(0); // 再戦のたびに画面を作り直すためのキー
+  const [puzzleOn, setPuzzleOn] = useState(false); // 問題モード（詰め共円）
+  const myId = useMemo(getOrCreatePlayerId, []);
+  const room = useRoomState(roomId);
+  useEffect(() => {
+    if (roomId) location.hash = roomId;
+  }, [roomId]);
+  async function handleCreate(name, preset, maxPlayers, ruleset, timeLimit) {
+    if (!db) throw new Error("FIREBASE_NOT_CONFIGURED");
+    const id = await createRoom(name, preset, maxPlayers, ruleset, timeLimit);
+    setRoomId(id);
+    return id;
+  }
+  async function handleJoin(code, name) {
+    if (!db) return "config_missing";
+    const res = await joinRoom(code, name);
+    if (res.outcome === "ok" || res.outcome === "already_in") {
+      setRoomId(code);
+      return "ok";
+    }
+    return res.outcome;
+  }
+
+  // 1人プレイ・友人と対戦（オフライン）はFirebase不要。ネット対戦の状態より優先して表示する
+  if (localState) {
+    return /*#__PURE__*/React.createElement(LocalGameScreen, {
+      state: localState,
+      onChange: setLocalState,
+      onExit: () => setLocalState(null)
+    });
+  }
+  if (puzzleOn) {
+    return /*#__PURE__*/React.createElement(PuzzleScreen, {
+      onExit: () => setPuzzleOn(false)
+    });
+  }
+  if (hotseatState) {
+    return /*#__PURE__*/React.createElement(HotseatGameScreen, {
+      key: hotseatGameId,
+      state: hotseatState,
+      onChange: setHotseatState,
+      onExit: () => setHotseatState(null),
+      onRematch: hotseatCfg ? () => {
+        setHotseatState(initHotseatState(hotseatCfg));
+        setHotseatGameId(n => n + 1);
+      } : null
+    });
+  }
+  if (!roomId) {
+    return /*#__PURE__*/React.createElement(HomeScreen, {
+      onCreate: handleCreate,
+      onJoin: handleJoin,
+      onStartLocal: cfg => setLocalState(initLocalState(cfg)),
+      onStartHotseat: cfg => {
+        setHotseatCfg(cfg);
+        setHotseatState(initHotseatState(cfg));
+        setHotseatGameId(n => n + 1);
+      },
+      onStartPuzzle: () => setPuzzleOn(true),
+      configReady: !CONFIG_IS_PLACEHOLDER
+    });
+  }
+  if (CONFIG_IS_PLACEHOLDER) return /*#__PURE__*/React.createElement(SetupNeeded, null);
+  if (room === undefined) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "screen"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 100,
+        color: "var(--ink-dim)"
+      }
+    }, "\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026"));
+  }
+  if (room === null) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "screen"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 100,
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        color: "var(--ink-dim)"
+      }
+    }, "\u30EB\u30FC\u30E0\u300C", roomId, "\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F"), /*#__PURE__*/React.createElement("button", {
+      className: "btn",
+      onClick: () => {
+        setRoomId(null);
+        location.hash = "";
+      }
+    }, "\u30DB\u30FC\u30E0\u306B\u623B\u308B")));
+  }
+
+  // 自分がまだこのルームの参加者でない場合（リンクから直接開いたときなど）は参加フォームを出す
+  if (!room.players || !room.players[myId]) {
+    return /*#__PURE__*/React.createElement(HomeScreen, {
+      onCreate: handleCreate,
+      onJoin: handleJoin,
+      onStartLocal: cfg => setLocalState(initLocalState(cfg)),
+      onStartHotseat: cfg => {
+        setHotseatCfg(cfg);
+        setHotseatState(initHotseatState(cfg));
+        setHotseatGameId(n => n + 1);
+      },
+      onStartPuzzle: () => setPuzzleOn(true),
+      configReady: !CONFIG_IS_PLACEHOLDER,
+      joinPrefill: roomId
+    });
+  }
+  if (room.meta.status === "waiting") {
+    return /*#__PURE__*/React.createElement(LobbyScreen, {
+      room: room,
+      roomId: roomId,
+      myId: myId,
+      onStart: () => startGame(roomId)
+    });
+  }
+  return /*#__PURE__*/React.createElement(GameScreen, {
+    room: room,
+    roomId: roomId,
+    myId: myId,
+    onPlace: (x, y) => placeStone(roomId, x, y),
+    onAccuse: seqs => room.meta.ruleset === "nanryo" ? accuseNanryo(roomId, seqs) : accuse(roomId, seqs),
+    onReset: () => resetRoom(roomId)
+  });
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(/*#__PURE__*/React.createElement(App, null));
+</script>
+</body>
+</html>
