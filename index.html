@@ -4,30 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>共円</title>
-<meta name="description" content="格子点に石を置き合い、4つの石が同一円周（または一直線）に乗ったら指摘する数学ゲーム「共円」。CPU対戦・友人との対戦・問題モード。">
+<meta name="description" content="格子点に石を置き合い、4つの石が同一円周（または一直線）に乗ったら指摘する数学ゲーム「共円」。CPU対戦・友人との対戦・オンライン対戦・問題モード。">
 
 <!--
   =====================================================================
-  共円（きょうえん）オンライン対戦アプリ
+  共円（きょうえん）
   =====================================================================
-  セットアップ手順:
-  1. https://console.firebase.google.com/ で新規プロジェクトを作成
-  2. 左メニュー「構築」→「Realtime Database」を作成（テストモードでOK。
-     このゲームはログイン機能を持たないカジュアル対戦用です）
-  3. プロジェクトの設定（歯車アイコン）→「マイアプリ」→ウェブアプリを追加
-  4. 表示された firebaseConfig の内容を、下の FIREBASE_CONFIG に貼り付ける
-  5. Realtime Database の「ルール」タブを以下にして公開:
-       {
-         "rules": {
-           "rooms": {
-             "$roomId": { ".read": true, ".write": true }
-           }
-         }
-       }
-     (身内・生徒同士のカジュアル対戦を想定した簡易設定です。荒らし対策が
-      必要な場合はルールを強化してください)
-  6. このHTMLファイルをそのまま GitHub Pages 等にアップロードすれば
-     そのURLを共有して複数人でリアルタイム対戦できます。
+  モード：1人で練習（CPU対戦）／友人と対戦（同じ画面）／問題モード／オンライン対戦
+  オンライン対戦は Firebase Realtime Database（プロジェクト asumath-games）の
+  games/kyoen/rooms 以下を使います。匿名ログインしてから読み書きします。
+  ルームは6時間たつと同じコードを再利用できるようになります。
   =====================================================================
 -->
 
@@ -679,8 +665,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.26/Tone.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
 <script>
 const {
@@ -692,14 +679,16 @@ const {
 } = React;
 
 /* =====================================================================
-   ここを書き換えてください（Firebase コンソールの「マイアプリ」から取得）
+   Firebase 設定（CROWD READER・PROOF BLUFF と同じ asumath-games プロジェクト）
    ===================================================================== */
 const FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT-default-rtdb.firegroundio.com",
-  // 実際はコンソール表示の値に置き換え
-  projectId: "YOUR_PROJECT"
+  apiKey: "AIzaSyC3__kwx4TH-ezcCCUWcb_J7PWZ7pDUjDc",
+  authDomain: "asumath-games.firebaseapp.com",
+  databaseURL: "https://asumath-games-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "asumath-games",
+  storageBucket: "asumath-games.firebasestorage.app",
+  messagingSenderId: "254715782397",
+  appId: "1:254715782397:web:bda2fd2283b292db050a94"
 };
 const CONFIG_IS_PLACEHOLDER = FIREBASE_CONFIG.apiKey === "YOUR_API_KEY";
 
@@ -776,13 +765,21 @@ function randomCode(len) {
 function randomId() {
   return "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
+// プレイヤーIDはタブごと（sessionStorage）。再読み込みしても同じ人として戻れ、
+// 同じ端末で2つのタブを開けば別プレイヤーとしてテストできる
+let memoryPlayerId = null;
 function getOrCreatePlayerId() {
-  let id = localStorage.getItem("kyoen_playerId");
-  if (!id) {
-    id = randomId();
-    localStorage.setItem("kyoen_playerId", id);
+  try {
+    let id = sessionStorage.getItem("kyoen_playerId");
+    if (!id) {
+      id = randomId();
+      sessionStorage.setItem("kyoen_playerId", id);
+    }
+    return id;
+  } catch (e) {
+    if (!memoryPlayerId) memoryPlayerId = randomId();
+    return memoryPlayerId;
   }
-  return id;
 }
 function getSavedName() {
   return localStorage.getItem("kyoen_playerName") || "";
@@ -802,13 +799,58 @@ const TIME_LIMIT_OPTIONS = [{ key: "none", label: "制限なし", seconds: null 
 
 /* =====================================================================
    Firebase 初期化 & DB フック
+   CROWD READER / PROOF BLUFF と同じ Firebase プロジェクト（asumath-games）の
+   games/kyoen/rooms 以下を使う。匿名ログインしてから読み書きする。
    ===================================================================== */
+const ROOT = "games/kyoen/rooms";
+const ROOM_TTL = 6 * 60 * 60 * 1000; // 6時間たった部屋コードは再利用できる
+const ACCUSE_LIMIT_MS = 45000; // 指摘中（ゲーム一時停止）にできる最大時間
+const ACCUSE_STALE_MS = 60000; // これより古い「指摘中」は無効とみなす（切断対策）
 let db = null;
-if (!CONFIG_IS_PLACEHOLDER) {
-  firebase.initializeApp(FIREBASE_CONFIG);
-  db = firebase.database();
+let serverOffset = 0;
+if (!CONFIG_IS_PLACEHOLDER && typeof firebase !== "undefined") {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+    db.ref(".info/serverTimeOffset").on("value", s => {
+      serverOffset = s.val() || 0;
+    });
+  } catch (e) {
+    console.error(e);
+    db = null;
+  }
 }
-function runTx(ref, updater) {
+const ONLINE_READY = !!db;
+function nowMs() {
+  return Date.now() + serverOffset;
+}
+function roomRef(roomId, sub) {
+  return db.ref(ROOT + "/" + roomId + (sub ? "/" + sub : ""));
+}
+let authPromise = null;
+function ensureAuth() {
+  if (!db) return Promise.reject(new Error("FIREBASE_NOT_CONFIGURED"));
+  if (!firebase.auth) return Promise.resolve(null);
+  if (!authPromise) {
+    authPromise = new Promise((resolve, reject) => {
+      const auth = firebase.auth();
+      const unsub = auth.onAuthStateChanged(u => {
+        if (u) {
+          unsub();
+          resolve(u);
+        }
+      });
+      auth.signInAnonymously().catch(e => {
+        unsub();
+        authPromise = null;
+        reject(e);
+      });
+    });
+  }
+  return authPromise;
+}
+async function runTx(ref, updater) {
+  await ensureAuth();
   return new Promise((resolve, reject) => {
     ref.transaction(updater, (err, committed, snapshot) => {
       if (err) reject(err);else resolve({
@@ -819,16 +861,45 @@ function runTx(ref, updater) {
   });
 }
 function useRoomState(roomId) {
-  const [state, setState] = useState(undefined); // undefined = loading, null = not found
+  const [state, setState] = useState(undefined); // undefined = 読み込み中, null = 見つからない, "error" = 接続失敗
   useEffect(() => {
     if (!roomId || !db) return;
     setState(undefined);
-    const ref = db.ref("rooms/" + roomId);
+    let ref = null;
+    let cancelled = false;
     const cb = snap => setState(snap.val());
-    ref.on("value", cb);
-    return () => ref.off("value", cb);
+    const onErr = () => setState("error");
+    ensureAuth().then(() => {
+      if (cancelled) return;
+      ref = roomRef(roomId);
+      ref.on("value", cb, onErr);
+    }).catch(onErr);
+    return () => {
+      cancelled = true;
+      if (ref) ref.off("value", cb);
+    };
   }, [roomId]);
   return state;
+}
+
+// 接続状態（オンライン／切断中）を players/<id>/online に反映する
+function usePresence(roomId, myId, isMember) {
+  useEffect(() => {
+    if (!db || !roomId || !isMember) return;
+    const pref = roomRef(roomId, "players/" + myId);
+    const conn = db.ref(".info/connected");
+    const cb = s => {
+      if (s.val() !== true) return;
+      pref.child("online").onDisconnect().set(false);
+      pref.transaction(cur => cur === null ? null : cur.left ? undefined : Object.assign({}, cur, {
+        online: true
+      }), null, false);
+    };
+    conn.on("value", cb);
+    return () => {
+      conn.off("value", cb);
+    };
+  }, [roomId, myId, isMember]);
 }
 
 /* =====================================================================
@@ -849,28 +920,106 @@ function nextActiveTurn(turnOrder, players, fromIdx) {
   }
   return null;
 }
+function isAccusingLive(room) {
+  return !!(room && room.accusing && room.accusing.pid && nowMs() - (room.accusing.at || 0) < ACCUSE_STALE_MS);
+}
+function namedPlayerIds(room) {
+  return Object.keys(room.players || {}).filter(pid => room.players[pid] && room.players[pid].name).sort((a, b) => room.players[a].order - room.players[b].order);
+}
+function activeIdsOf(room) {
+  return (room.turnOrder || []).filter(pid => room.players[pid] && room.players[pid].active);
+}
+// 生存者が1人以下になったら決着
+function settleIfOver(room) {
+  const act = activeIdsOf(room);
+  if (act.length <= 1) {
+    room.meta.status = "finished";
+    room.winner = act.length === 1 ? act[0] : "draw";
+    room.accusing = null;
+    room.log = pushLog(room, {
+      type: "win",
+      name: act.length === 1 ? room.players[act[0]].name : null,
+      ts: nowMs()
+    });
+  }
+}
+// 現在の手番の人が脱落していたら次の人へ送る
+function fixTurn(room) {
+  const cur = room.players[room.currentTurn];
+  if (!cur || !cur.active) {
+    const idx = (room.turnOrder || []).indexOf(room.currentTurn);
+    room.currentTurn = nextActiveTurn(room.turnOrder || [], room.players, idx >= 0 ? idx : 0);
+    room.turnStartedAt = nowMs();
+  }
+}
+// 指摘が終わったら、一時停止していた持ち時間を再開する
+function resumeClock(room) {
+  const a = room.accusing;
+  room.turnStartedAt = nowMs() - (a && a.elapsed ? a.elapsed : 0);
+  room.accusing = null;
+}
+function applyPlace(room, pid, x, y, auto) {
+  const stones = room.stones || [];
+  if (stones.some(s => s.x === x && s.y === y)) return false;
+  const seq = stones.length;
+  stones.push({
+    x,
+    y,
+    owner: pid,
+    seq
+  });
+  room.stones = stones;
+  room.lastStoneSeq = seq;
+  room.log = pushLog(room, {
+    type: "place",
+    pid,
+    name: room.players[pid].name,
+    x,
+    y,
+    auto: !!auto,
+    ts: nowMs()
+  });
+  const r = room.meta.boardRadius;
+  if (stones.length >= (2 * r + 1) * (2 * r + 1)) {
+    room.meta.status = "finished";
+    room.winner = "draw";
+    room.log = pushLog(room, {
+      type: "draw",
+      ts: nowMs()
+    });
+    return true;
+  }
+  room.currentTurn = nextActiveTurn(room.turnOrder, room.players, room.turnOrder.indexOf(pid));
+  room.turnStartedAt = nowMs();
+  return true;
+}
+function freeColor(room) {
+  const used = new Set(namedPlayerIds(room).map(pid => room.players[pid].color));
+  return PLAYER_COLORS.find(c => !used.has(c)) || PLAYER_COLORS[0];
+}
 async function createRoom(hostName, presetKey, maxPlayers, ruleset, timeLimit) {
   const myId = getOrCreatePlayerId();
   const preset = BOARD_PRESETS.find(p => p.key === presetKey) || BOARD_PRESETS[1];
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const code = randomCode(5);
-    const ref = db.ref("rooms/" + code);
     const initial = {
       meta: {
-        createdAt: Date.now(),
+        createdAt: nowMs(),
         boardRadius: preset.radius,
         maxPlayers: maxPlayers,
         hostId: myId,
         status: "waiting",
         ruleset: ruleset || "major",
-        timeLimit: timeLimit || null
+        timeLimit: timeLimit || null,
+        gameNo: 0
       },
       players: {
         [myId]: {
           name: hostName,
           color: PLAYER_COLORS[0],
           order: 0,
-          active: true
+          active: true,
+          online: true
         }
       },
       turnOrder: [],
@@ -881,142 +1030,259 @@ async function createRoom(hostName, presetKey, maxPlayers, ruleset, timeLimit) {
       winner: null
     };
     const {
-      committed
-    } = await runTx(ref, current => current === null ? initial : undefined);
-    if (committed) return code;
+      committed,
+      snapshot
+    } = await runTx(roomRef(code), cur => {
+      if (cur && cur.meta && nowMs() - (cur.meta.createdAt || 0) < ROOM_TTL) return undefined; // 使用中
+      return initial;
+    });
+    if (committed && snapshot.val() && snapshot.val().meta.hostId === myId) return code;
   }
   throw new Error("ROOM_CODE_EXHAUSTED");
 }
 async function joinRoom(roomId, name) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
   let outcome = "ok";
   const {
     committed,
     snapshot
-  } = await runTx(ref, room => {
+  } = await runTx(roomRef(roomId), room => {
+    outcome = "ok";
     if (room === null) {
+      outcome = "not_found";
+      return null;
+    }
+    if (!room.meta || nowMs() - (room.meta.createdAt || 0) > ROOM_TTL && room.meta.status !== "playing") {
       outcome = "not_found";
       return undefined;
     }
-    if (room.players && room.players[myId]) {
+    const mine = room.players && room.players[myId];
+    if (mine && mine.name && !mine.left) {
       outcome = "already_in";
-      return room; // 既に参加済みなら何もしない
+      return room;
     }
     if (room.meta.status !== "waiting") {
       outcome = "already_started";
       return undefined;
     }
-    const count = Object.keys(room.players || {}).length;
-    if (count >= room.meta.maxPlayers) {
+    room.players = room.players || {};
+    const ids = namedPlayerIds(room).filter(pid => !room.players[pid].left);
+    if (ids.length >= room.meta.maxPlayers) {
       outcome = "full";
       return undefined;
     }
-    room.players = room.players || {};
+    const maxOrder = ids.reduce((m, pid) => Math.max(m, room.players[pid].order), -1);
     room.players[myId] = {
       name,
-      color: PLAYER_COLORS[count % PLAYER_COLORS.length],
-      order: count,
-      active: true
+      color: freeColor(room),
+      order: maxOrder + 1,
+      active: true,
+      online: true
     };
     return room;
   });
+  if (committed && !snapshot.val()) outcome = "not_found";
   if (!committed && outcome === "ok") outcome = "conflict";
   return {
     outcome,
     room: snapshot ? snapshot.val() : null
   };
 }
+function resetForNewGame(room, ids) {
+  ids.forEach(pid => {
+    room.players[pid].active = true;
+  });
+  // 退室した人は名簿から外す
+  Object.keys(room.players).forEach(pid => {
+    if (!ids.includes(pid)) delete room.players[pid];
+  });
+  room.turnOrder = ids;
+  room.stones = [];
+  room.lastStoneSeq = -1;
+  room.winner = null;
+  room.accusing = null;
+  room.lastEvent = null;
+  room.turnStartedAt = nowMs();
+}
 async function startGame(roomId) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
-  await runTx(ref, room => {
-    if (room === null) return undefined;
-    if (room.meta.hostId !== myId) return undefined;
-    const ids = Object.keys(room.players).sort((a, b) => room.players[a].order - room.players[b].order);
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    if (room.meta.hostId !== myId || room.meta.status !== "waiting") return undefined;
+    const ids = namedPlayerIds(room).filter(pid => !room.players[pid].left);
     if (ids.length < MIN_PLAYERS) return undefined;
+    resetForNewGame(room, ids);
     room.meta.status = "playing";
-    room.turnOrder = ids;
+    room.meta.gameNo = 0;
     room.currentTurn = ids[0];
-    room.stones = [];
-    room.lastStoneSeq = -1;
-    room.winner = null;
-    room.log = pushLog(room, {
+    room.log = [{
       type: "start",
-      ts: Date.now()
-    });
+      ts: nowMs()
+    }];
+    return room;
+  });
+}
+// ホスト：同じメンバーでもう一局（先手は1人ずつずらす）
+async function rematchRoom(roomId) {
+  const myId = getOrCreatePlayerId();
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    if (room.meta.hostId !== myId || room.meta.status !== "finished") return undefined;
+    const ids = (room.turnOrder || []).filter(pid => room.players[pid] && room.players[pid].name && !room.players[pid].left);
+    if (ids.length < MIN_PLAYERS) {
+      resetForNewGame(room, namedPlayerIds(room).filter(pid => !room.players[pid].left));
+      room.meta.status = "waiting";
+      room.turnOrder = [];
+      room.currentTurn = null;
+      room.log = [];
+      return room;
+    }
+    resetForNewGame(room, ids);
+    room.meta.gameNo = (room.meta.gameNo || 0) + 1;
+    room.meta.status = "playing";
+    room.currentTurn = ids[room.meta.gameNo % ids.length];
+    room.log = [{
+      type: "start",
+      ts: nowMs()
+    }];
+    return room;
+  });
+}
+// ホスト：ロビーに戻して参加者を募り直す
+async function backToLobby(roomId) {
+  const myId = getOrCreatePlayerId();
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    if (room.meta.hostId !== myId) return undefined;
+    resetForNewGame(room, namedPlayerIds(room).filter(pid => !room.players[pid].left));
+    room.meta.status = "waiting";
+    room.turnOrder = [];
+    room.currentTurn = null;
+    room.log = [];
     return room;
   });
 }
 async function placeStone(roomId, x, y) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
-  await runTx(ref, room => {
-    if (room === null) return undefined;
-    if (room.meta.status !== "playing") return undefined;
-    if (room.currentTurn !== myId) return undefined;
-    const stones = room.stones || [];
-    if (stones.some(s => s.x === x && s.y === y)) return undefined; // 既に石がある
-    const seq = stones.length;
-    stones.push({
-      x,
-      y,
-      owner: myId,
-      seq
-    });
-    room.stones = stones;
-    room.lastStoneSeq = seq;
-    room.log = pushLog(room, {
-      type: "place",
-      pid: myId,
-      name: room.players[myId].name,
-      x,
-      y,
-      ts: Date.now()
-    });
-
-    // 盤面が全て埋まったら引き分け判定
-    const r = room.meta.boardRadius;
-    const totalPoints = (2 * r + 1) * (2 * r + 1);
-    if (stones.length >= totalPoints) {
-      room.meta.status = "finished";
-      room.winner = "draw";
-      room.log = pushLog(room, {
-        type: "draw",
-        ts: Date.now()
-      });
-      return room;
-    }
-    const curIdx = room.turnOrder.indexOf(myId);
-    const next = nextActiveTurn(room.turnOrder, room.players, curIdx);
-    room.currentTurn = next;
+  let outcome = "rejected";
+  await runTx(roomRef(roomId), room => {
+    outcome = "rejected";
+    if (room === null) return null;
+    if (room.meta.status !== "playing" || room.currentTurn !== myId) return undefined;
+    if (isAccusingLive(room)) return undefined; // 誰かが指摘中はゲーム停止
+    if (!applyPlace(room, myId, x, y, false)) return undefined;
+    outcome = "ok";
+    return room;
+  });
+  return outcome;
+}
+// 持ち時間切れ：ランダムな空きマスに自動で置く（本人が落ちていても他の人の端末が代行する）
+async function timeoutMove(roomId, expectTurn, expectCount) {
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    const limit = room.meta.timeLimit;
+    if (!limit || room.meta.status !== "playing") return undefined;
+    if (room.currentTurn !== expectTurn || (room.stones || []).length !== expectCount) return undefined;
+    if (isAccusingLive(room)) return undefined;
+    if (nowMs() - (room.turnStartedAt || 0) < limit * 1000 - 400) return undefined;
+    const cell = randomEmptyCell(room.stones || [], room.meta.boardRadius);
+    if (!cell) return undefined;
+    applyPlace(room, room.currentTurn, cell.x, cell.y, true);
     return room;
   });
 }
+// 「指摘する」を押した瞬間にゲームを止める（早い者勝ち）
+async function claimAccuse(roomId) {
+  const myId = getOrCreatePlayerId();
+  let outcome = "error";
+  let busyName = "";
+  const {
+    committed
+  } = await runTx(roomRef(roomId), room => {
+    outcome = "error";
+    if (room === null) return null;
+    if (room.meta.status !== "playing") return undefined;
+    const me = room.players[myId];
+    if (!me || !me.active) return undefined;
+    const stones = room.stones || [];
+    if (stones.length < 4) return undefined;
+    const last = stones.find(s => s.seq === room.lastStoneSeq);
+    if (last && last.owner === myId) {
+      outcome = "last_mover";
+      return undefined;
+    }
+    if (isAccusingLive(room) && room.accusing.pid !== myId) {
+      outcome = "busy";
+      busyName = room.accusing.name;
+      return undefined;
+    }
+    room.accusing = {
+      pid: myId,
+      name: me.name,
+      at: nowMs(),
+      elapsed: Math.max(0, nowMs() - (room.turnStartedAt || nowMs()))
+    };
+    outcome = "ok";
+    return room;
+  });
+  if (committed && outcome === "ok") {
+    roomRef(roomId, "accusing").onDisconnect().remove();
+  }
+  return {
+    outcome,
+    busyName
+  };
+}
+async function cancelAccuse(roomId) {
+  const myId = getOrCreatePlayerId();
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    if (!room.accusing || room.accusing.pid !== myId) return undefined;
+    resumeClock(room);
+    return room;
+  });
+  roomRef(roomId, "accusing").onDisconnect().cancel();
+}
+function makeEvent(kind, accuserId, accuserName, targetId, targetName, pts) {
+  return {
+    id: randomId(),
+    kind,
+    accuserId,
+    accuserName,
+    targetId: targetId || null,
+    targetName: targetName || null,
+    pts: pts.map(p => [p.x, p.y])
+  };
+}
+// メジャールール：直前の一手を含む4点を指摘。成立したら置いた人が脱落、不成立はおとがめなし
 async function accuse(roomId, seqList) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
   let result = "error";
-  await runTx(ref, room => {
-    if (room === null) return undefined;
+  await runTx(roomRef(roomId), room => {
+    result = "error";
+    if (room === null) return null;
     if (room.meta.status !== "playing") return undefined;
-    if (!seqList.includes(room.lastStoneSeq)) return undefined; // 直前の1手を含まない指摘は無効
-    const stones = room.stones;
+    if (!room.accusing || room.accusing.pid !== myId) {
+      result = "expired";
+      return undefined;
+    }
+    const stones = room.stones || [];
+    if (!seqList.includes(room.lastStoneSeq)) return undefined;
     const pts = seqList.map(seq => stones.find(s => s.seq === seq)).filter(Boolean);
     if (pts.length !== 4) return undefined;
-    const targetSeq = room.lastStoneSeq;
-    const targetStone = stones.find(s => s.seq === targetSeq);
-    const targetPid = targetStone.owner;
+    const targetPid = stones.find(s => s.seq === room.lastStoneSeq).owner;
     const accuserName = room.players[myId] ? room.players[myId].name : "?";
     const targetName = room.players[targetPid] ? room.players[targetPid].name : "?";
+    resumeClock(room);
     if (!isKyoen(pts)) {
       result = "miss";
       room.log = pushLog(room, {
         type: "fail",
         accuserName,
         pts: pts.map(p => [p.x, p.y]),
-        ts: Date.now()
+        ts: nowMs()
       });
+      room.lastEvent = makeEvent("miss", myId, accuserName, null, null, pts);
       return room;
     }
     result = "hit";
@@ -1026,65 +1292,46 @@ async function accuse(roomId, seqList) {
       accuserName,
       targetName,
       pts: pts.map(p => [p.x, p.y]),
-      ts: Date.now()
+      ts: nowMs()
     });
-
-    // 現在の手番が既に脱落済みなら次の生存者へ送る（保険的な再計算）
-    if (!room.players[room.currentTurn] || !room.players[room.currentTurn].active) {
-      const idx = room.turnOrder.indexOf(room.currentTurn);
-      room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx >= 0 ? idx : 0);
-    }
-    const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
-    if (activeIds.length <= 1) {
-      room.meta.status = "finished";
-      room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
-      room.log = pushLog(room, {
-        type: "win",
-        name: activeIds.length === 1 ? room.players[activeIds[0]].name : null,
-        ts: Date.now()
-      });
-    }
+    room.lastEvent = makeEvent("hit", myId, accuserName, targetPid, targetName, pts);
+    fixTurn(room);
+    settleIfOver(room);
     return room;
   });
+  roomRef(roomId, "accusing").onDisconnect().cancel();
   return result;
 }
 
-// 南稜ローカルルール：直前の一手に限らず、盤上のどの4点でも指摘できる。
-// 成立したら指摘した本人がその場で勝利する（脱落制ではない）
+// 南稜ローカルルール：どの4点でも指摘できる。成立したら指摘した本人が勝利、不成立なら本人が脱落
 async function accuseNanryo(roomId, seqList) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
   let result = "error";
-  await runTx(ref, room => {
-    if (room === null) return undefined;
+  await runTx(roomRef(roomId), room => {
+    result = "error";
+    if (room === null) return null;
     if (room.meta.status !== "playing") return undefined;
-    const pts = seqList.map(seq => room.stones.find(s => s.seq === seq)).filter(Boolean);
+    if (!room.accusing || room.accusing.pid !== myId) {
+      result = "expired";
+      return undefined;
+    }
+    const stones = room.stones || [];
+    const pts = seqList.map(seq => stones.find(s => s.seq === seq)).filter(Boolean);
     if (pts.length !== 4) return undefined;
     const accuserName = room.players[myId] ? room.players[myId].name : "?";
+    resumeClock(room);
     if (!isKyoen(pts)) {
       result = "miss";
-      // 不正解：指摘した本人が脱落する
       if (room.players[myId]) room.players[myId].active = false;
       room.log = pushLog(room, {
         type: "accuse_miss_elim",
         accuserName,
         pts: pts.map(p => [p.x, p.y]),
-        ts: Date.now()
+        ts: nowMs()
       });
-      if (!room.players[room.currentTurn] || !room.players[room.currentTurn].active) {
-        const idx = room.turnOrder.indexOf(room.currentTurn);
-        room.currentTurn = nextActiveTurn(room.turnOrder, room.players, idx >= 0 ? idx : 0);
-      }
-      const activeIds = room.turnOrder.filter(pid => room.players[pid].active);
-      if (activeIds.length <= 1) {
-        room.meta.status = "finished";
-        room.winner = activeIds.length === 1 ? activeIds[0] : "draw";
-        room.log = pushLog(room, {
-          type: "win",
-          name: activeIds.length === 1 ? room.players[activeIds[0]].name : null,
-          ts: Date.now()
-        });
-      }
+      room.lastEvent = makeEvent("nanryo_miss", myId, accuserName, null, null, pts);
+      fixTurn(room);
+      settleIfOver(room);
       return room;
     }
     result = "hit";
@@ -1094,26 +1341,69 @@ async function accuseNanryo(roomId, seqList) {
       type: "win_by_accuse",
       accuserName,
       pts: pts.map(p => [p.x, p.y]),
-      ts: Date.now()
+      ts: nowMs()
     });
+    room.lastEvent = makeEvent("nanryo_hit", myId, accuserName, null, null, pts);
     return room;
   });
+  roomRef(roomId, "accusing").onDisconnect().cancel();
   return result;
 }
-async function resetRoom(roomId) {
+// 通信が切れたまま戻らない人を脱落扱いにする（誰でも押せる）
+async function kickPlayer(roomId, pid) {
   const myId = getOrCreatePlayerId();
-  const ref = db.ref("rooms/" + roomId);
-  await runTx(ref, room => {
-    if (room === null) return undefined;
-    if (room.meta.hostId !== myId) return undefined;
-    room.meta.status = "waiting";
-    room.turnOrder = [];
-    room.currentTurn = null;
-    room.stones = [];
-    room.lastStoneSeq = -1;
-    room.winner = null;
-    room.log = [];
-    Object.keys(room.players).forEach(pid => room.players[pid].active = true);
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    if (room.meta.status !== "playing" || pid === myId) return undefined;
+    const p = room.players[pid];
+    if (!p || !p.active || p.online !== false) return undefined;
+    p.active = false;
+    room.log = pushLog(room, {
+      type: "kick",
+      name: p.name,
+      ts: nowMs()
+    });
+    if (room.accusing && room.accusing.pid === pid) resumeClock(room);
+    fixTurn(room);
+    settleIfOver(room);
+    return room;
+  });
+}
+async function leaveRoom(roomId) {
+  const myId = getOrCreatePlayerId();
+  try {
+    roomRef(roomId, "players/" + myId + "/online").onDisconnect().cancel();
+    roomRef(roomId, "accusing").onDisconnect().cancel();
+  } catch (e) {}
+  await runTx(roomRef(roomId), room => {
+    if (room === null) return null;
+    const p = room.players && room.players[myId];
+    if (!p) return undefined;
+    if (room.meta.status === "waiting") {
+      delete room.players[myId];
+      const rest = namedPlayerIds(room).filter(pid => !room.players[pid].left);
+      if (rest.length === 0) return null; // 誰もいなくなったら部屋ごと消す
+      if (room.meta.hostId === myId) room.meta.hostId = rest[0];
+      return room;
+    }
+    p.left = true;
+    p.online = false;
+    if (room.meta.status === "playing" && p.active) {
+      p.active = false;
+      room.log = pushLog(room, {
+        type: "leave",
+        name: p.name,
+        ts: nowMs()
+      });
+      if (room.accusing && room.accusing.pid === myId) resumeClock(room);
+      fixTurn(room);
+      settleIfOver(room);
+    }
+    if (room.meta.hostId === myId) {
+      const rest = namedPlayerIds(room).filter(pid => !room.players[pid].left);
+      if (rest.length === 0) return null;
+      room.meta.hostId = rest[0];
+    }
     return room;
   });
 }
@@ -1973,6 +2263,7 @@ function HomeScreen({
   onStartHotseat,
   onStartPuzzle,
   joinPrefill,
+  onCancelJoin,
   configReady
 }) {
   const [mode, setMode] = useState(joinPrefill ? "join" : null);
@@ -2061,7 +2352,7 @@ function HomeScreen({
     className: "btn",
     disabled: !configReady,
     onClick: () => setMode("join")
-  }, configReady ? "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B" : "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B\uFF08\u6E96\u5099\u4E2D\uFF09")), mode === null && /*#__PURE__*/React.createElement("div", {
+  }, configReady ? "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B" : "\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B\uFF08\u6E96\u5099\u4E2D\uFF09")), mode === null && !configReady && /*#__PURE__*/React.createElement("div", {
     className: "hint-text",
     style: {
       marginTop: 10
@@ -2322,6 +2613,7 @@ function HomeScreen({
     onClick: () => {
       setMode(null);
       setError("");
+      if (onCancelJoin) onCancelJoin();
     }
   }, "\u623B\u308B")))));
 }
@@ -2340,24 +2632,40 @@ function ConfigNeededNotice({
 }
 
 /* =====================================================================
-   UI: ロビー画面
+   UI: ロビー画面（オンライン対戦の待合室）
    ===================================================================== */
 function LobbyScreen({
   room,
   roomId,
   myId,
-  onStart
+  onStart,
+  onLeave
 }) {
   const isHost = room.meta.hostId === myId;
-  const players = Object.entries(room.players || {}).sort((a, b) => a[1].order - b[1].order);
+  const players = Object.entries(room.players || {}).filter(([, p]) => p && p.name && !p.left).sort((a, b) => a[1].order - b[1].order);
   const preset = BOARD_PRESETS.find(p => p.radius === room.meta.boardRadius);
+  const rule = RULESET_OPTIONS.find(r => r.key === (room.meta.ruleset || "major"));
+  const tl = room.meta.timeLimit ? `持ち時間${room.meta.timeLimit}秒` : "持ち時間なし";
   const link = location.origin + location.pathname + "#" + roomId;
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
   function copyLink() {
-    navigator.clipboard.writeText(link).then(() => {
+    const done = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-    });
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(done).catch(() => window.prompt("このリンクを送ってください", link));
+    } else window.prompt("このリンクを送ってください", link);
+  }
+  async function start() {
+    Sound.unlock();
+    setBusy(true);
+    try {
+      await onStart();
+    } finally {
+      setBusy(false);
+    }
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "screen"
@@ -2366,13 +2674,23 @@ function LobbyScreen({
   }, /*#__PURE__*/React.createElement("div", {
     className: "room-code-row"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginBottom: 2
+    }
+  }, "\u30EB\u30FC\u30E0\u30B3\u30FC\u30C9"), /*#__PURE__*/React.createElement("div", {
     className: "room-code mono"
   }, roomId), /*#__PURE__*/React.createElement("div", {
     className: "room-meta"
-  }, preset ? preset.label : "", "\u3000\u6700\u5927", room.meta.maxPlayers, "\u4EBA")), /*#__PURE__*/React.createElement("button", {
+  }, preset ? preset.label : "", "\u3000\u6700\u5927", room.meta.maxPlayers, "\u4EBA", /*#__PURE__*/React.createElement("br", null), rule ? rule.label : "", "\u3000", tl)), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: copyLink
   }, copied ? "コピーしました" : "招待リンクをコピー")), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginBottom: 12
+    }
+  }, "\u53CB\u3060\u3061\u306B\u306F\u300C\u30EB\u30FC\u30E0\u306B\u53C2\u52A0\u3059\u308B\u300D\u3067\u3053\u306E\u30B3\u30FC\u30C9\u3092\u5165\u529B\u3057\u3066\u3082\u3089\u3046\u304B\u3001\u62DB\u5F85\u30EA\u30F3\u30AF\u3092\u9001\u3063\u3066\u304F\u3060\u3055\u3044\u3002"), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18
     }
@@ -2388,7 +2706,9 @@ function LobbyScreen({
     className: "player-name"
   }, p.name, pid === myId ? "（あなた）" : ""), pid === room.meta.hostId && /*#__PURE__*/React.createElement("span", {
     className: "tag"
-  }, "\u30DB\u30B9\u30C8"))), Array.from({
+  }, "\u30DB\u30B9\u30C8"), p.online === false && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u5207\u65AD\u4E2D"))), Array.from({
     length: Math.max(0, room.meta.maxPlayers - players.length)
   }).map((_, i) => /*#__PURE__*/React.createElement("div", {
     className: "player-row",
@@ -2404,13 +2724,18 @@ function LobbyScreen({
     className: "empty-slot"
   }, "\u53C2\u52A0\u8005\u3092\u5F85\u3063\u3066\u3044\u307E\u3059\u2026")))), isHost ? /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-block",
-    disabled: players.length < MIN_PLAYERS,
-    onClick: onStart
-  }, players.length < MIN_PLAYERS ? `あと${MIN_PLAYERS - players.length}人必要です` : "ゲームを開始する") : /*#__PURE__*/React.createElement("div", {
+    disabled: busy || players.length < MIN_PLAYERS,
+    onClick: start
+  }, players.length < MIN_PLAYERS ? `あと${MIN_PLAYERS - players.length}人必要です` : busy ? "開始中…" : "ゲームを開始する") : /*#__PURE__*/React.createElement("div", {
     className: "hint-text"
-  }, "\u30DB\u30B9\u30C8\u304C\u958B\u59CB\u3059\u308B\u307E\u3067\u304A\u5F85\u3061\u304F\u3060\u3055\u3044")));
+  }, "\u30DB\u30B9\u30C8\u304C\u958B\u59CB\u3059\u308B\u307E\u3067\u304A\u5F85\u3061\u304F\u3060\u3055\u3044"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-ghost btn-block",
+    style: {
+      marginTop: 10
+    },
+    onClick: onLeave
+  }, "\u9000\u5BA4\u3059\u308B")));
 }
-
 function LogLine({
   entry
 }) {
@@ -2419,7 +2744,7 @@ function LogLine({
   }, "\u30B2\u30FC\u30E0\u958B\u59CB");
   if (entry.type === "place") return /*#__PURE__*/React.createElement("div", {
     className: "log-item"
-  }, entry.name, " \u3055\u3093\u304C (", entry.x, ", ", entry.y, ") \u306B\u7740\u624B");
+  }, entry.name, " \u3055\u3093\u304C (", entry.x, ", ", entry.y, ") \u306B\u7740\u624B", entry.auto ? "（時間切れ・自動）" : "");
   if (entry.type === "eliminate") {
     const pts = entry.pts.map(p => `(${p[0]}, ${p[1]})`).join(" ");
     return /*#__PURE__*/React.createElement("div", {
@@ -2443,6 +2768,12 @@ function LogLine({
       className: "log-item eliminate"
     }, entry.accuserName, " \u3055\u3093\u306E\u6307\u6458\u306F\u4E0D\u6210\u7ACB\uFF1A", pts, " \u306F\u5171\u5186\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002", entry.accuserName, " \u3055\u3093\u8131\u843D");
   }
+  if (entry.type === "leave") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item eliminate"
+  }, entry.name, " \u3055\u3093\u304C\u9000\u5BA4\u3057\u307E\u3057\u305F\uFF08\u8131\u843D\uFF09");
+  if (entry.type === "kick") return /*#__PURE__*/React.createElement("div", {
+    className: "log-item eliminate"
+  }, entry.name, " \u3055\u3093\u306F\u901A\u4FE1\u304C\u5207\u308C\u305F\u305F\u3081\u8131\u843D\u306B\u306A\u308A\u307E\u3057\u305F");
   if (entry.type === "win") return /*#__PURE__*/React.createElement("div", {
     className: "log-item win"
   }, entry.name ? `${entry.name} さんの勝利！` : "勝者なし");
@@ -2452,18 +2783,6 @@ function LogLine({
   return null;
 }
 
-/* =====================================================================
-   UI: ゲーム画面（オンライン対戦）
-   ===================================================================== */
-/* =====================================================================
-   UI: ゲーム画面（オンライン対戦）
-   ===================================================================== */
-/* =====================================================================
-   UI: 制限時間バー
-   ===================================================================== */
-/* =====================================================================
-   UI: 制限時間バー
-   ===================================================================== */
 /* =====================================================================
    UI: 制限時間バー（残りわずかで赤く脈打つ）
    ===================================================================== */
@@ -2512,6 +2831,7 @@ function UrgentOverlay({
    ===================================================================== */
 function ResultFlash({
   result,
+  sub,
   onDone
 }) {
   useEffect(() => {
@@ -2523,8 +2843,22 @@ function ResultFlash({
   return /*#__PURE__*/React.createElement("div", {
     className: "result-flash-overlay"
   }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     className: "result-flash-text " + (result === "hit" ? "hit" : "miss")
-  }, result === "hit" ? "正解！！" : result === "caught" ? "共円！！" : "不正解！！"));
+  }, result === "hit" ? "正解！！" : result === "caught" ? "共円！！" : "不正解！！"), sub && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: "clamp(16px, 3.6vw, 28px)",
+      fontWeight: 800,
+      color: "#fff",
+      textShadow: "0 2px 10px rgba(0,0,0,.6)"
+    }
+  }, sub)));
 }
 
 /* =====================================================================
@@ -2734,47 +3068,207 @@ function HeatLegend() {
 /* =====================================================================
    UI: ゲーム画面（オンライン対戦）
    ===================================================================== */
+function useNow(active) {
+  const [now, setNow] = useState(nowMs());
+  useEffect(() => {
+    if (!active) return;
+    setNow(nowMs());
+    const t = setInterval(() => setNow(nowMs()), 250);
+    return () => clearInterval(t);
+  }, [active]);
+  return now;
+}
 function GameScreen({
   room,
   roomId,
   myId,
-  onPlace,
-  onAccuse,
-  onReset
+  onLeave
 }) {
   const [mode, setMode] = useState("place");
   const [selected, setSelected] = useState([]);
   const [toast, setToast] = useState(null);
   const [resultCircle, setResultCircle] = useState(null);
+  const [resultBad, setResultBad] = useState(false);
   const [resultFlash, setResultFlash] = useState(null);
+  const [flashSub, setFlashSub] = useState("");
   const [showNumbers, setShowNumbers] = useState(false);
   const [replaying, setReplaying] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [busy, setBusy] = useState(false);
   const stones = room.stones || [];
-  const players = room.players;
+  const players = {};
+  Object.entries(room.players || {}).forEach(([pid, p]) => {
+    if (p && p.name) players[pid] = p;
+  });
   const status = room.meta.status;
-  const myTurn = status === "playing" && room.currentTurn === myId;
-  const isHost = room.meta.hostId === myId;
   const ruleset = room.meta.ruleset || "major";
   const timeLimit = room.meta.timeLimit || null;
+  const isHost = room.meta.hostId === myId;
+  const me = players[myId];
+  const iAmActive = !!(me && me.active);
+  const accusingRaw = room.accusing && room.accusing.pid ? room.accusing : null;
+  const now = useNow(status === "playing" && (!!timeLimit || !!accusingRaw));
+  const accusing = accusingRaw && now - (accusingRaw.at || 0) < ACCUSE_STALE_MS ? accusingRaw : null;
+  const myAccusing = !!(accusing && accusing.pid === myId);
+  const myTurn = status === "playing" && room.currentTurn === myId;
   const lastMoverPid = stones.length > 0 ? (stones.find(s => s.seq === room.lastStoneSeq) || {}).owner : null;
-  const iAmLastMover = lastMoverPid === myId;
+  const canAccuse = status === "playing" && iAmActive && stones.length >= 4 && lastMoverPid !== myId && !accusing;
+
+  // 持ち時間（サーバ時刻基準。誰かが指摘している間は止まる）
+  let remainingMs = null;
+  if (timeLimit && status === "playing") {
+    remainingMs = accusing ? timeLimit * 1000 - (accusing.elapsed || 0) : timeLimit * 1000 - (now - (room.turnStartedAt || now));
+  }
+  const countdown = remainingMs === null ? null : Math.max(0, Math.ceil(remainingMs / 1000));
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
-  function enterAccuseMode() {
-    Sound.unlock();
-    Sound.accuseOpen();
-    setResultCircle(null);
-    if (ruleset === "nanryo") {
-      setMode("accuse");
+
+  // 時間切れ：自分の番なら自分で、相手が落ちていたら3秒後に代わりに自動着手させる
+  const firedRef = useRef("");
+  useEffect(() => {
+    if (remainingMs === null || accusing) return;
+    const key = room.currentTurn + ":" + stones.length;
+    if (firedRef.current === key) return;
+    if (myTurn && remainingMs <= 0 || !myTurn && remainingMs <= -3000 && iAmActive) {
+      firedRef.current = key;
+      timeoutMove(roomId, room.currentTurn, stones.length).catch(() => {});
+    }
+  }, [remainingMs !== null && remainingMs <= 0, remainingMs !== null && remainingMs <= -3000, room.currentTurn, stones.length, !!accusing]);
+
+  // 自分の指摘が長引いたら自動でキャンセル
+  useEffect(() => {
+    if (myAccusing && now - accusing.at > ACCUSE_LIMIT_MS) {
+      cancelAccuse(roomId).catch(() => {});
+      setToast("指摘の時間切れです（45秒）。ゲームを再開します");
+    }
+  }, [myAccusing, now]);
+
+  // 自分の「指摘中」がサーバ側で消えたら（時間切れ等）、配置モードに戻す
+  const prevMyAccusing = useRef(false);
+  useEffect(() => {
+    if (prevMyAccusing.current && !myAccusing && mode === "accuse") {
+      setMode("place");
       setSelected([]);
+    }
+    prevMyAccusing.current = myAccusing;
+  }, [myAccusing]);
+
+  // 他の人が「指摘する」を押したら音で知らせる
+  const prevAccuser = useRef(accusing ? accusing.pid : null);
+  useEffect(() => {
+    const pid = accusing ? accusing.pid : null;
+    if (pid && pid !== prevAccuser.current && pid !== myId) {
+      Sound.accuseOpen();
+      if (mode === "judge") setMode("place");
+    }
+    prevAccuser.current = pid;
+  }, [accusing ? accusing.pid : null]);
+
+  // 他の人が石を置いたら音を鳴らす
+  const prevCount = useRef(stones.length);
+  useEffect(() => {
+    if (stones.length > prevCount.current) {
+      const last = stones[stones.length - 1];
+      if (last && last.owner !== myId) Sound.place();
+      setResultCircle(null);
+    }
+    if (stones.length === 0 && prevCount.current > 0) {
+      // 再戦で盤面がリセットされた
+      setMode("place");
+      setSelected([]);
+      setReplaying(false);
+      setResultCircle(null);
+    }
+    prevCount.current = stones.length;
+  }, [stones.length]);
+
+  // 指摘の結果を全員の画面で同時に演出する
+  const seenEvent = useRef(room.lastEvent ? room.lastEvent.id : null);
+  useEffect(() => {
+    const ev = room.lastEvent;
+    if (!ev || ev.id === seenEvent.current) return;
+    seenEvent.current = ev.id;
+    const pts = (ev.pts || []).map(p => ({
+      x: p[0],
+      y: p[1]
+    }));
+    const byMe = ev.accuserId === myId;
+    if (ev.kind === "hit") {
+      setResultCircle(pts);
+      if (ev.targetId === myId) {
+        setResultBad(true);
+        setResultFlash("caught");
+        setFlashSub(`${ev.accuserName} さんに指摘されました`);
+        setToast("共円を指摘されました。あなたは脱落です…");
+        Sound.wrong();
+      } else {
+        setResultBad(false);
+        setResultFlash("hit");
+        setFlashSub(byMe ? "" : `${ev.accuserName} さんの指摘`);
+        setToast(byMe ? `指摘成立！${ev.targetName} さんが脱落します` : `${ev.accuserName} さんの指摘成立！${ev.targetName} さんが脱落`);
+        Sound.correct();
+      }
+    } else if (ev.kind === "nanryo_hit") {
+      setResultCircle(pts);
+      setResultBad(false);
+      if (byMe) {
+        setResultFlash("hit");
+        setFlashSub("あなたの勝利！");
+        setToast("指摘成立！あなたの勝利です。");
+        Sound.correct();
+      } else {
+        setResultFlash("caught");
+        setFlashSub(`${ev.accuserName} さんが見つけました`);
+        setToast(`${ev.accuserName} さんの指摘成立。${ev.accuserName} さんの勝利です`);
+        Sound.wrong();
+      }
+    } else {
+      setResultCircle(null);
+      setResultFlash("miss");
+      setFlashSub(byMe ? "" : `${ev.accuserName} さんの指摘`);
+      if (ev.kind === "nanryo_miss") setToast(byMe ? "指摘は不成立でした。あなたの脱落です。" : `${ev.accuserName} さんの指摘は不成立。${ev.accuserName} さんが脱落`);else setToast(byMe ? "指摘は不成立でした。共円ではありません。" : `${ev.accuserName} さんの指摘は不成立でした`);
+      Sound.wrong();
+    }
+  }, [room.lastEvent ? room.lastEvent.id : null]);
+
+  // 勝ったらファンファーレ
+  const prevStatus = useRef(status);
+  useEffect(() => {
+    if (prevStatus.current === "playing" && status === "finished" && room.winner === myId) {
+      setTimeout(() => Sound.win(), 900);
+    }
+    if (status === "playing" && prevStatus.current !== "playing") {
+      setMode("place");
+      setSelected([]);
+      setReplaying(false);
+    }
+    prevStatus.current = status;
+  }, [status]);
+  async function enterAccuseMode() {
+    Sound.unlock();
+    if (busy) return;
+    setBusy(true);
+    const {
+      outcome,
+      busyName
+    } = await claimAccuse(roomId).catch(() => ({
+      outcome: "error"
+    }));
+    setBusy(false);
+    if (outcome !== "ok") {
+      if (outcome === "busy") setToast(`${busyName} さんが先に指摘しています`);else if (outcome === "last_mover") setToast("直前に置いた人は指摘できません");else setToast("今は指摘できません");
       return;
     }
-    const last = stones.find(s => s.seq === room.lastStoneSeq);
+    Sound.accuseOpen();
+    setResultCircle(null);
     setMode("accuse");
-    setSelected(last ? [last] : []);
+    if (ruleset === "nanryo") setSelected([]);else {
+      const last = stones.find(s => s.seq === room.lastStoneSeq);
+      setSelected(last ? [last] : []);
+    }
   }
   function enterJudgeMode() {
     Sound.unlock();
@@ -2783,15 +3277,17 @@ function GameScreen({
     setSelected([]);
   }
   function backToPlace() {
+    if (mode === "accuse") cancelAccuse(roomId).catch(() => {});
     setMode("place");
     setSelected([]);
   }
   function onPointClick(x, y, stone) {
     if (mode === "place") {
+      if (!myTurn || accusing) return;
       Sound.unlock();
       Sound.place();
       setResultCircle(null);
-      onPlace(x, y);
+      placeStone(roomId, x, y).catch(() => setToast("通信エラーです。もう一度お試しください"));
       return;
     }
     if (!stone) return;
@@ -2806,47 +3302,32 @@ function GameScreen({
     });
   }
   async function submitAccuse() {
-    if (selected.length !== 4) return;
-    const pts = selected.map(s => ({
-      x: s.x,
-      y: s.y
-    }));
-    const res = await onAccuse(selected.map(s => s.seq));
-    if (res === "hit") {
-      setToast(ruleset === "nanryo" ? "指摘成立！あなたの勝利です。" : "指摘成立！共円（または共線）でした。");
-      setResultCircle(pts);
-      setResultFlash("hit");
-      Sound.correct();
-    } else if (res === "miss") {
-      setToast(ruleset === "nanryo" ? "指摘は不成立でした。あなたの脱落です。" : "指摘は不成立でした。共円ではありません。");
-      setResultFlash("miss");
-      Sound.wrong();
-    } else {
-      setToast("指摘は受理されませんでした（次の一手が先に置かれた可能性があります）");
-    }
+    if (selected.length !== 4 || busy) return;
+    setBusy(true);
+    const seqs = selected.map(s => s.seq);
+    const res = await (ruleset === "nanryo" ? accuseNanryo(roomId, seqs) : accuse(roomId, seqs)).catch(() => "error");
+    setBusy(false);
+    if (res === "expired") setToast("指摘の時間が切れていました");else if (res === "error") setToast("指摘は受理されませんでした");
     setMode("place");
     setSelected([]);
   }
-  const [turnCountdown, setTurnCountdown] = useState(null);
-  useEffect(() => {
-    if (!timeLimit || status !== "playing" || !myTurn || mode !== "place") {
-      setTurnCountdown(null);
+  async function leave() {
+    if (status === "playing" && iAmActive && !confirmLeave) {
+      setConfirmLeave(true);
+      setTimeout(() => setConfirmLeave(false), 4000);
       return;
     }
-    setTurnCountdown(timeLimit);
-    const tick = setInterval(() => setTurnCountdown(c => c !== null && c > 0 ? c - 1 : 0), 1000);
-    const timer = setTimeout(() => {
-      const cell = randomEmptyCell(stones, room.meta.boardRadius);
-      if (cell) onPlace(cell.x, cell.y);
-    }, timeLimit * 1000);
-    return () => {
-      clearInterval(tick);
-      clearTimeout(timer);
-    };
-  }, [room.currentTurn, status, mode, timeLimit]);
+    if (mode === "accuse") await cancelAccuse(roomId).catch(() => {});
+    onLeave();
+  }
   const judgeResult = mode === "judge" && selected.length === 4 ? isKyoen(selected) : null;
   const playersOrdered = Object.entries(players).sort((a, b) => a[1].order - b[1].order);
   const accuseLabel = ruleset === "nanryo" ? "指摘する" : "直前の一手を指摘する";
+  const curName = players[room.currentTurn] ? players[room.currentTurn].name : "";
+  let bannerText;
+  if (accusing) bannerText = myAccusing ? "あなたが指摘中です（ゲーム一時停止中）" : `${accusing.name} さんが指摘中…（ゲーム一時停止中）`;else if (!iAmActive) bannerText = `あなたは脱落しました（観戦中）　${curName} さんの番です`;else if (myTurn) bannerText = "あなたの番です。空いている格子点をタップして石を置いてください";else bannerText = `${curName} さんの番です`;
+  const accuseLeft = myAccusing ? Math.max(0, Math.ceil((ACCUSE_LIMIT_MS - (now - accusing.at)) / 1000)) : null;
+  const winnerName = room.winner === "draw" ? null : players[room.winner] ? players[room.winner].name : "";
   return /*#__PURE__*/React.createElement("div", {
     className: "screen"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2857,18 +3338,33 @@ function GameScreen({
     className: "winner-banner"
   }, /*#__PURE__*/React.createElement("div", {
     className: "big"
-  }, room.winner === "draw" ? "盤面が埋まり引き分けです" : `${players[room.winner] ? players[room.winner].name : ""} さんの勝利！`), /*#__PURE__*/React.createElement("div", {
+  }, room.winner === "draw" ? "引き分けです" : room.winner === myId ? "あなたの勝利！" : `${winnerName} さんの勝利！`), /*#__PURE__*/React.createElement("div", {
     className: "mode-bar",
     style: {
       justifyContent: "center"
     }
   }, isHost && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-primary",
+    onClick: () => {
+      Sound.unlock();
+      rematchRoom(roomId).catch(() => setToast("通信エラーです"));
+    }
+  }, "\u540C\u3058\u30E1\u30F3\u30D0\u30FC\u3067\u518D\u6226\u3059\u308B"), isHost && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
-    onClick: onReset
-  }, "\u3082\u3046\u4E00\u5EA6\u5BFE\u6226\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => backToLobby(roomId).catch(() => {})
+  }, "\u30ED\u30D3\u30FC\u306B\u623B\u308B\uFF08\u53C2\u52A0\u8005\u3092\u52DF\u96C6\uFF09"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: () => setReplaying(v => !v)
-  }, replaying ? "リプレイを閉じる" : "リプレイを見る")), !replaying && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MissedCirclesPanel, {
+  }, replaying ? "リプレイを閉じる" : "リプレイを見る"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    onClick: leave
+  }, "\u9000\u5BA4\u3059\u308B")), !isHost && /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      textAlign: "center",
+      marginTop: 6
+    }
+  }, "\u30DB\u30B9\u30C8\u304C\u518D\u6226\u3092\u59CB\u3081\u308B\u306E\u3092\u5F85\u3063\u3066\u3044\u307E\u3059"), !replaying && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(MissedCirclesPanel, {
     stones: stones,
     players: players,
     radius: room.meta.boardRadius,
@@ -2879,14 +3375,21 @@ function GameScreen({
     radius: room.meta.boardRadius,
     onClose: () => setReplaying(false)
   }), !replaying && /*#__PURE__*/React.createElement(React.Fragment, null, status === "playing" && /*#__PURE__*/React.createElement("div", {
-    className: "turn-banner" + (myTurn ? " mine" : "")
-  }, /*#__PURE__*/React.createElement("span", null, myTurn ? "あなたの番です。空いている格子点をクリックして石を置いてください" : `${players[room.currentTurn] ? players[room.currentTurn].name : ""} さんの番です`, turnCountdown !== null && ` （残り${turnCountdown}秒）`), mode === "place" && stones.length >= 4 && !iAmLastMover && /*#__PURE__*/React.createElement("button", {
+    className: "turn-banner" + (myTurn && !accusing ? " mine" : "")
+  }, /*#__PURE__*/React.createElement("span", null, bannerText, countdown !== null && !accusing && ` （残り${countdown}秒）`), mode === "place" && canAccuse && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm btn-danger",
+    disabled: busy,
     onClick: enterAccuseMode
   }, accuseLabel)), /*#__PURE__*/React.createElement(TimerBar, {
-    countdown: turnCountdown,
+    countdown: countdown,
     limit: timeLimit
-  }), /*#__PURE__*/React.createElement("div", {
+  }), status === "playing" && accusing && /*#__PURE__*/React.createElement("div", {
+    className: "accuser-spotlight"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "name"
+  }, myAccusing ? "あなた" : accusing.name), /*#__PURE__*/React.createElement("div", {
+    className: "sub"
+  }, myAccusing ? `が指摘中です（残り${accuseLeft}秒）` : "さんが指摘中です。結果を待っています…")), /*#__PURE__*/React.createElement("div", {
     className: "board-svg-wrap"
   }, /*#__PURE__*/React.createElement(Board, {
     radius: room.meta.boardRadius,
@@ -2894,12 +3397,13 @@ function GameScreen({
     players: players,
     lastStoneSeq: room.lastStoneSeq,
     status: status,
-    myTurn: myTurn,
-    canPlace: myTurn,
+    myTurn: myTurn && !accusing,
+    canPlace: myTurn && !accusing,
     onPointClick: onPointClick,
     mode: mode,
     selected: selected,
     resultCircle: resultCircle,
+    resultBad: resultBad,
     showNumbers: showNumbers
   })), /*#__PURE__*/React.createElement("div", {
     className: "mode-bar"
@@ -2915,7 +3419,7 @@ function GameScreen({
     onClick: () => setSelected([])
   }, "\u9078\u629E\u3092\u30AF\u30EA\u30A2")), mode === "accuse" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm btn-danger",
-    disabled: selected.length !== 4,
+    disabled: selected.length !== 4 || busy,
     onClick: submitAccuse
   }, "\u3053\u306E4\u70B9\u3067\u6307\u6458\u3059\u308B"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm btn-ghost",
@@ -2923,7 +3427,10 @@ function GameScreen({
   }, "\u3084\u3081\u308B")), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm btn-ghost",
     onClick: () => setShowNumbers(v => !v)
-  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement(SoundToggle, null)), mode === "judge" && /*#__PURE__*/React.createElement("div", {
+  }, showNumbers ? "番号を隠す" : "番号を表示"), /*#__PURE__*/React.createElement(SoundToggle, null), status !== "finished" && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm " + (confirmLeave ? "btn-danger" : "btn-ghost"),
+    onClick: leave
+  }, confirmLeave ? "本当に退室する（脱落）" : "退室する")), mode === "judge" && /*#__PURE__*/React.createElement("div", {
     className: "selection-info"
   }, /*#__PURE__*/React.createElement("span", null, "\u9078\u629E\u4E2D\uFF1A", selected.length, " / 4 \u70B9"), judgeResult !== null && /*#__PURE__*/React.createElement("span", {
     className: "judge-result " + (judgeResult ? "yes" : "no")
@@ -2933,7 +3440,7 @@ function GameScreen({
     className: "panel-col"
   }, /*#__PURE__*/React.createElement("div", {
     className: "panel"
-  }, /*#__PURE__*/React.createElement("h3", null, "\u53C2\u52A0\u8005"), playersOrdered.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("h3", null, "\u30EB\u30FC\u30E0 ", roomId), playersOrdered.map(([pid, p]) => /*#__PURE__*/React.createElement("div", {
     className: "player-row",
     key: pid
   }, /*#__PURE__*/React.createElement("span", {
@@ -2943,11 +3450,24 @@ function GameScreen({
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "player-name"
-  }, p.name, pid === myId ? "（あなた）" : ""), status === "playing" && room.currentTurn === pid && p.active && /*#__PURE__*/React.createElement("span", {
+  }, p.name, pid === myId ? "（あなた）" : ""), pid === room.meta.hostId && /*#__PURE__*/React.createElement("span", {
     className: "tag"
-  }, "\u756A"), !p.active && /*#__PURE__*/React.createElement("span", {
+  }, "\u30DB\u30B9\u30C8"), status === "playing" && room.currentTurn === pid && p.active && /*#__PURE__*/React.createElement("span", {
+    className: "tag"
+  }, "\u756A"), p.left ? /*#__PURE__*/React.createElement("span", {
     className: "tag tag-elim"
-  }, "\u8131\u843D")))), /*#__PURE__*/React.createElement("div", {
+  }, "\u9000\u5BA4") : p.online === false && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u5207\u65AD\u4E2D"), !p.active && !p.left && status !== "waiting" && /*#__PURE__*/React.createElement("span", {
+    className: "tag tag-elim"
+  }, "\u8131\u843D"), status === "playing" && p.active && p.online === false && !p.left && pid !== myId && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm btn-ghost",
+    style: {
+      marginLeft: "auto",
+      padding: "2px 8px"
+    },
+    onClick: () => kickPlayer(roomId, pid).catch(() => {})
+  }, "\u8131\u843D\u306B\u3059\u308B")))), /*#__PURE__*/React.createElement("div", {
     className: "panel"
   }, /*#__PURE__*/React.createElement("h3", null, "\u5BFE\u6226\u8A18\u9332"), /*#__PURE__*/React.createElement("div", {
     className: "log-feed"
@@ -2957,9 +3477,10 @@ function GameScreen({
   })), (!room.log || room.log.length === 0) && /*#__PURE__*/React.createElement("div", {
     className: "log-item"
   }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), /*#__PURE__*/React.createElement(UrgentOverlay, {
-    countdown: turnCountdown
+    countdown: myTurn && !accusing ? countdown : null
   }), /*#__PURE__*/React.createElement(ResultFlash, {
     result: resultFlash,
+    sub: flashSub,
     onDone: () => setResultFlash(null)
   }), toast && /*#__PURE__*/React.createElement("div", {
     className: "toast"
@@ -3840,44 +4361,24 @@ function PuzzleScreen({
   }));
 }
 
-/* =====================================================================
-   セットアップ未完了画面
-   ===================================================================== */
-function SetupNeeded() {
-  return /*#__PURE__*/React.createElement("div", {
-    className: "setup-wrap"
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      marginBottom: 16
-    }
-  }, "Firebase \u306E\u8A2D\u5B9A\u304C\u5FC5\u8981\u3067\u3059"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      color: "var(--ink-dim)",
-      fontSize: 14
-    }
-  }, "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u5192\u982D\u306E\u30B3\u30E1\u30F3\u30C8\u3001\u307E\u305F\u306F <script> \u5185\u306E ", /*#__PURE__*/React.createElement("span", {
-    className: "mono"
-  }, "FIREBASE_CONFIG"), " \u304C\u307E\u3060\u66F8\u304D\u63DB\u3048\u3089\u308C\u3066\u3044\u307E\u305B\u3093\u3002"), /*#__PURE__*/React.createElement("ol", null, /*#__PURE__*/React.createElement("li", null, "Firebase \u30B3\u30F3\u30BD\u30FC\u30EB\u3067\u65B0\u898F\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u4F5C\u6210"), /*#__PURE__*/React.createElement("li", null, "Realtime Database \u3092\u4F5C\u6210\uFF08\u30C6\u30B9\u30C8\u30E2\u30FC\u30C9\u3067OK\uFF09"), /*#__PURE__*/React.createElement("li", null, "\u30A6\u30A7\u30D6\u30A2\u30D7\u30EA\u3092\u8FFD\u52A0\u3057\u3001\u8868\u793A\u3055\u308C\u305F\u8A2D\u5B9A\u5024\u3092 ", /*#__PURE__*/React.createElement("span", {
-    className: "mono"
-  }, "FIREBASE_CONFIG"), " \u306B\u8CBC\u308A\u4ED8\u3051"), /*#__PURE__*/React.createElement("li", null, "Realtime Database \u306E\u300C\u30EB\u30FC\u30EB\u300D\u3092 rooms \u4EE5\u4E0B read/write true \u306B\u8A2D\u5B9A")), /*#__PURE__*/React.createElement("pre", null, `{
-  "rules": {
-    "rooms": {
-      "$roomId": { ".read": true, ".write": true }
-    }
-  }
-}`));
-}
-
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 /* =====================================================================
    App ルート
    ===================================================================== */
+function readHashRoom() {
+  if (!ONLINE_READY) return null;
+  const h = location.hash.replace("#", "").trim().toUpperCase();
+  return /^[A-Z0-9]{4,6}$/.test(h) ? h : null;
+}
+function clearHash() {
+  try {
+    history.replaceState(null, "", location.pathname + location.search);
+  } catch (e) {
+    location.hash = "";
+  }
+}
 function App() {
-  const [roomId, setRoomId] = useState(() => {
-    // オンライン対戦が未設定のデモ版では、URLの # 以降は無視してホーム画面を出す
-    if (CONFIG_IS_PLACEHOLDER) return null;
-    const h = location.hash.replace("#", "").toUpperCase();
-    return h || null;
-  });
+  const [roomId, setRoomId] = useState(readHashRoom);
   const [localState, setLocalState] = useState(null); // null = 1人プレイ未開始
   const [hotseatState, setHotseatState] = useState(null); // null = 友人と対戦（オフライン）未開始
   const [hotseatCfg, setHotseatCfg] = useState(null); // 再戦用に直前の設定（名前・人数・ルールなど）を覚えておく
@@ -3885,6 +4386,8 @@ function App() {
   const [puzzleOn, setPuzzleOn] = useState(false); // 問題モード（詰め共円）
   const myId = useMemo(getOrCreatePlayerId, []);
   const room = useRoomState(roomId);
+  const isMember = !!(room && typeof room === "object" && room.players && room.players[myId] && room.players[myId].name && !room.players[myId].left);
+  usePresence(roomId, myId, isMember);
   useEffect(() => {
     if (roomId) location.hash = roomId;
   }, [roomId]);
@@ -3896,13 +4399,40 @@ function App() {
   }
   async function handleJoin(code, name) {
     if (!db) return "config_missing";
-    const res = await joinRoom(code, name);
-    if (res.outcome === "ok" || res.outcome === "already_in") {
-      setRoomId(code);
-      return "ok";
+    try {
+      const res = await joinRoom(code, name);
+      if (res.outcome === "ok" || res.outcome === "already_in") {
+        setRoomId(code);
+        return "ok";
+      }
+      return res.outcome;
+    } catch (e) {
+      console.error(e);
+      return "error";
     }
-    return res.outcome;
   }
+  async function handleLeave() {
+    const id = roomId;
+    setRoomId(null);
+    clearHash();
+    if (id) leaveRoom(id).catch(() => {});
+  }
+  function goHome() {
+    setRoomId(null);
+    clearHash();
+  }
+  const homeProps = {
+    onCreate: handleCreate,
+    onJoin: handleJoin,
+    onStartLocal: cfg => setLocalState(initLocalState(cfg)),
+    onStartHotseat: cfg => {
+      setHotseatCfg(cfg);
+      setHotseatState(initHotseatState(cfg));
+      setHotseatGameId(n => n + 1);
+    },
+    onStartPuzzle: () => setPuzzleOn(true),
+    configReady: ONLINE_READY
+  };
 
   // 1人プレイ・友人と対戦（オフライン）はFirebase不要。ネット対戦の状態より優先して表示する
   if (localState) {
@@ -3930,20 +4460,8 @@ function App() {
     });
   }
   if (!roomId) {
-    return /*#__PURE__*/React.createElement(HomeScreen, {
-      onCreate: handleCreate,
-      onJoin: handleJoin,
-      onStartLocal: cfg => setLocalState(initLocalState(cfg)),
-      onStartHotseat: cfg => {
-        setHotseatCfg(cfg);
-        setHotseatState(initHotseatState(cfg));
-        setHotseatGameId(n => n + 1);
-      },
-      onStartPuzzle: () => setPuzzleOn(true),
-      configReady: !CONFIG_IS_PLACEHOLDER
-    });
+    return /*#__PURE__*/React.createElement(HomeScreen, homeProps);
   }
-  if (CONFIG_IS_PLACEHOLDER) return /*#__PURE__*/React.createElement(SetupNeeded, null);
   if (room === undefined) {
     return /*#__PURE__*/React.createElement("div", {
       className: "screen"
@@ -3952,60 +4470,51 @@ function App() {
         marginTop: 100,
         color: "var(--ink-dim)"
       }
-    }, "\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026"));
+    }, "\u30B5\u30FC\u30D0\u30FC\u306B\u63A5\u7D9A\u3057\u3066\u3044\u307E\u3059\u2026"));
   }
-  if (room === null) {
+  if (room === null || room === "error") {
     return /*#__PURE__*/React.createElement("div", {
       className: "screen"
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 100,
-        textAlign: "center"
+        textAlign: "center",
+        padding: "0 16px"
       }
     }, /*#__PURE__*/React.createElement("p", {
       style: {
-        color: "var(--ink-dim)"
+        color: "var(--ink-dim)",
+        marginBottom: 14
       }
-    }, "\u30EB\u30FC\u30E0\u300C", roomId, "\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F"), /*#__PURE__*/React.createElement("button", {
+    }, room === "error" ? "サーバーに接続できませんでした。通信環境を確認して、もう一度お試しください。" : `ルーム「${roomId}」は見つかりませんでした`), /*#__PURE__*/React.createElement("button", {
       className: "btn",
-      onClick: () => {
-        setRoomId(null);
-        location.hash = "";
-      }
+      onClick: goHome
     }, "\u30DB\u30FC\u30E0\u306B\u623B\u308B")));
   }
 
   // 自分がまだこのルームの参加者でない場合（リンクから直接開いたときなど）は参加フォームを出す
-  if (!room.players || !room.players[myId]) {
-    return /*#__PURE__*/React.createElement(HomeScreen, {
-      onCreate: handleCreate,
-      onJoin: handleJoin,
-      onStartLocal: cfg => setLocalState(initLocalState(cfg)),
-      onStartHotseat: cfg => {
-        setHotseatCfg(cfg);
-        setHotseatState(initHotseatState(cfg));
-        setHotseatGameId(n => n + 1);
-      },
-      onStartPuzzle: () => setPuzzleOn(true),
-      configReady: !CONFIG_IS_PLACEHOLDER,
-      joinPrefill: roomId
-    });
+  if (!isMember) {
+    return /*#__PURE__*/React.createElement(HomeScreen, _extends({
+      key: "join-" + roomId
+    }, homeProps, {
+      joinPrefill: roomId,
+      onCancelJoin: goHome
+    }));
   }
   if (room.meta.status === "waiting") {
     return /*#__PURE__*/React.createElement(LobbyScreen, {
       room: room,
       roomId: roomId,
       myId: myId,
-      onStart: () => startGame(roomId)
+      onStart: () => startGame(roomId),
+      onLeave: handleLeave
     });
   }
   return /*#__PURE__*/React.createElement(GameScreen, {
     room: room,
     roomId: roomId,
     myId: myId,
-    onPlace: (x, y) => placeStone(roomId, x, y),
-    onAccuse: seqs => room.meta.ruleset === "nanryo" ? accuseNanryo(roomId, seqs) : accuse(roomId, seqs),
-    onReset: () => resetRoom(roomId)
+    onLeave: handleLeave
   });
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
