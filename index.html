@@ -19,39 +19,53 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;600;800&family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Yuji+Boku&display=swap" rel="stylesheet">
 
 <style>
+  /* 囲碁：和紙の地に、榧（かや）の碁盤と墨の文字。差し色は朱 */
   :root{
-    --bg:#101b2e;
-    --bg-panel:#152239;
-    --bg-panel-raised:#1a2a45;
-    --grid-line:#28405f;
-    --grid-line-axis:#3a5a82;
-    --grid-dot:#4a6a92;
-    --ink:#ece7da;
-    --ink-dim:#8fa0bc;
-    --ink-faint:#5c7093;
-    --border:#28405f;
-    --accent:#e8c55a;
-    --accent-dim:#7a6a38;
-    --danger:#e8563e;
-    --safe:#7ed9a8;
-    --radius:3px;
+    color-scheme:light;
+    --bg:#efe6d4;
+    --bg-panel:#f8f2e6;
+    --bg-panel-raised:#fffaf0;
+    --wood:#dcb36a;
+    --wood-dk:#c8974a;
+    --grid-line:#3b2a17;
+    --grid-line-axis:#1e140a;
+    --grid-dot:#3b2a17;
+    --ink:#1c1712;
+    --ink-dim:#4f4334;
+    --ink-faint:#85765f;
+    --border:#cbb994;
+    --accent:#b8352a;
+    --accent-dim:#e3b9a8;
+    --danger:#a8261b;
+    --safe:#2f7a4c;
+    --radius:4px;
+    --f-body:'Yuji Syuku','Hiragino Mincho ProN','Yu Mincho',serif;
+    --f-brush:'Yuji Boku','Yuji Syuku','Hiragino Mincho ProN','Yu Mincho',serif;
   }
   *{box-sizing:border-box;}
+  html{font-synthesis-weight:none;}   /* 毛筆の書体は太字を作らない */
   html,body{margin:0;padding:0;}
   body{
-    background:var(--bg);
+    background-color:var(--bg);
+    /* 和紙のすき目 */
+    background-image:
+      radial-gradient(ellipse at 20% 10%, rgba(255,255,255,.55), transparent 55%),
+      radial-gradient(ellipse at 85% 90%, rgba(160,130,80,.12), transparent 60%),
+      repeating-linear-gradient(97deg, rgba(120,95,55,.035) 0 2px, transparent 2px 9px),
+      repeating-linear-gradient(8deg, rgba(120,95,55,.03) 0 1px, transparent 1px 13px);
+    background-attachment:fixed;
     color:var(--ink);
-    font-family:'IBM Plex Sans JP',sans-serif;
+    font-family:var(--f-body);
     min-height:100vh;
     line-height:1.6;
   }
   #root{min-height:100vh;}
   h1,h2,h3{
-    font-family:'Shippori Mincho',serif;
-    font-weight:600;
+    font-family:var(--f-brush);
+    font-weight:400;
     margin:0;
     letter-spacing:.02em;
   }
@@ -62,7 +76,7 @@
   input,select{
     font-family:inherit;
   }
-  .mono{font-family:'IBM Plex Mono',monospace;}
+  .mono{font-family:var(--f-body);letter-spacing:.06em;}
 
   /* ---------- layout shells ---------- */
   .screen{
@@ -85,7 +99,7 @@
     gap:10px;
   }
   .brand-mark{
-    font-family:'Shippori Mincho',serif;
+    font-family:var(--f-brush);
     font-size:28px;
     font-weight:800;
     color:var(--ink);
@@ -106,11 +120,9 @@
     align-items:center;
     text-align:center;
   }
-  .home-title{
-    font-size:56px;
-    font-weight:800;
-    letter-spacing:.12em;
-  }
+  .home-title{line-height:0;}
+  .home-title img{display:block;height:min(260px,34vh);width:auto;margin:0 auto;
+    filter:drop-shadow(0 1px 0 rgba(255,255,255,.4));}
   .home-tagline{
     margin-top:14px;
     color:var(--ink-dim);
@@ -133,6 +145,7 @@
     border:1px solid var(--border);
     border-radius:var(--radius);
     padding:20px;
+    box-shadow:0 2px 0 rgba(120,95,55,.12), 0 8px 24px rgba(90,70,40,.08);
   }
   .card-title{
     font-size:14px;
@@ -155,7 +168,7 @@
   }
   .field input,.field select{
     width:100%;
-    background:var(--bg);
+    background:var(--bg-panel-raised);
     border:1px solid var(--border);
     color:var(--ink);
     padding:9px 10px;
@@ -180,20 +193,20 @@
     font-weight:500;
     transition:filter .12s ease, transform .05s ease;
   }
-  .btn:hover{filter:brightness(1.15);}
+  .btn:hover{filter:brightness(.96);}
   .btn:active{transform:translateY(1px);}
   .btn:disabled{opacity:.35;cursor:not-allowed;filter:none;}
+  .btn{font-size:15px;}
   .btn-primary{
-    background:var(--accent);
-    color:#20180a;
-    border-color:var(--accent);
-    font-weight:700;
+    background:var(--ink);
+    color:#f6efe2;
+    border-color:var(--ink);
   }
+  .btn-primary:hover{filter:none;background:#3a3026;}
   .btn-danger{
     background:var(--danger);
-    color:#2a0f0a;
+    color:#fff6ee;
     border-color:var(--danger);
-    font-weight:700;
   }
   .btn-block{width:100%;}
   .btn-ghost{
@@ -241,13 +254,13 @@
     align-items:center;
     gap:10px;
     padding:9px 2px;
-    border-bottom:1px solid rgba(40,64,95,.5);
+    border-bottom:1px solid rgba(160,135,95,.35);
   }
   .player-row:last-child{border-bottom:none;}
   .dot{
     width:11px;height:11px;border-radius:50%;
     flex-shrink:0;
-    box-shadow:0 0 0 2px rgba(0,0,0,.25) inset;
+    box-shadow:0 0 0 1px rgba(0,0,0,.45) inset, 0 1px 2px rgba(0,0,0,.25);
   }
   .player-name{flex:1;font-size:14.5px;}
   .tag{
@@ -295,17 +308,24 @@
   .board-svg-wrap{
     width:100%;
     max-width:640px;
-    background:var(--bg-panel);
-    border:1px solid var(--border);
-    border-radius:var(--radius);
+    /* 榧の碁盤：木目と厚み */
+    background-color:var(--wood);
+    background-image:
+      repeating-linear-gradient(88deg, rgba(120,72,20,.10) 0 3px, transparent 3px 11px, rgba(255,235,190,.10) 11px 14px, transparent 14px 23px),
+      repeating-linear-gradient(91deg, rgba(110,65,15,.07) 0 1px, transparent 1px 37px),
+      linear-gradient(180deg, #e6c27c, var(--wood) 45%, var(--wood-dk));
+    border:1px solid #9c7134;
+    border-radius:6px;
     padding:14px;
+    box-shadow:0 1px 0 rgba(255,240,205,.6) inset, 0 -3px 0 rgba(110,70,25,.35) inset, 0 6px 0 #8d6229, 0 12px 22px rgba(70,45,15,.35);
+    margin-bottom:6px;
   }
   .board-svg{
     width:100%;
     height:auto;
     display:block;
   }
-  .lattice-dot{fill:var(--grid-dot);}
+  .lattice-dot{fill:var(--grid-dot);opacity:.55;}
   .lattice-hit{fill:transparent;cursor:pointer;}
   .lattice-hit.disabled{cursor:default;}
   .stone-shadow{opacity:.35;}
@@ -353,7 +373,7 @@
     background:var(--bg-panel-raised);
   }
   .accuser-spotlight .name{
-    font-family:'Shippori Mincho',serif;
+    font-family:var(--f-brush);
     font-size:30px;
     font-weight:700;
     color:var(--accent);
@@ -373,7 +393,7 @@
   .modal-backdrop{
     position:fixed;
     inset:0;
-    background:rgba(8,14,24,.78);
+    background:rgba(28,22,14,.55);
     display:flex;
     align-items:center;
     justify-content:center;
@@ -388,10 +408,10 @@
     width:100%;
     max-width:380px;
     text-align:center;
-    box-shadow:0 12px 40px rgba(0,0,0,.5);
+    box-shadow:0 12px 40px rgba(40,28,10,.35);
   }
   .modal-title{
-    font-family:'Shippori Mincho',serif;
+    font-family:var(--f-brush);
     font-size:24px;
     font-weight:700;
     color:var(--ink);
@@ -442,10 +462,10 @@
     top:50%;
     left:50%;
     transform:translate(-50%,-50%);
-    font-family:'Shippori Mincho',serif;
+    font-family:var(--f-brush);
     font-size:min(30vw,160px);
     font-weight:800;
-    color:rgba(232,86,62,.28);
+    color:rgba(168,38,27,.22);
     pointer-events:none;
     z-index:59;
   }
@@ -501,7 +521,7 @@
     font-size:14.5px;
   }
   .puzzle-score{
-    font-family:'IBM Plex Mono',monospace;
+    font-family:var(--f-body);
     color:var(--accent);
     font-weight:600;
   }
@@ -514,19 +534,19 @@
     justify-content:center;
     z-index:200;
     pointer-events:none;
-    background:rgba(8,14,24,.4);
+    background:rgba(20,15,8,.5);
     animation:flashFade 1.8s ease forwards;
   }
   .result-flash-text{
-    font-family:'Shippori Mincho',serif;
-    font-weight:800;
-    font-size:min(18vw,72px);
+    font-family:var(--f-brush);
+    font-weight:400;
+    font-size:min(20vw,86px);
     letter-spacing:.06em;
     text-shadow:0 4px 28px rgba(0,0,0,.65);
     animation:flashPop .5s cubic-bezier(.34,1.56,.64,1);
   }
-  .result-flash-text.hit{ color:var(--safe); }
-  .result-flash-text.miss{ color:var(--danger); }
+  .result-flash-text.hit{ color:#9fe0b4; }
+  .result-flash-text.miss{ color:#ff9a86; }
   @keyframes flashPop{
     0%{transform:scale(.3);opacity:0;}
     55%{transform:scale(1.18);opacity:1;}
@@ -539,7 +559,7 @@
   }
   @media (orientation:landscape) and (min-width:820px) and (max-height:900px){
     .home-wrap{padding:22px 24px 24px;}
-    .home-title{font-size:44px;}
+    .home-title img{height:min(200px,30vh);}
     .lobby-wrap{padding:26px 24px 24px;}
     .game-wrap{
       padding:14px 22px 22px;
@@ -563,7 +583,7 @@
     border-radius:var(--radius);
     padding:14px 16px;
   }
-  .panel h3{font-size:13px;color:var(--ink-faint);font-weight:500;margin-bottom:10px;font-family:'IBM Plex Sans JP',sans-serif;letter-spacing:.04em;}
+  .panel h3{font-size:13px;color:var(--ink-faint);font-weight:500;margin-bottom:10px;font-family:var(--f-body);letter-spacing:.04em;}
   .log-feed{
     max-height:360px;
     overflow-y:auto;
@@ -574,7 +594,7 @@
   }
   .log-item{
     padding-bottom:8px;
-    border-bottom:1px solid rgba(40,64,95,.5);
+    border-bottom:1px solid rgba(160,135,95,.35);
     color:var(--ink-dim);
   }
   .log-item:last-child{border-bottom:none;padding-bottom:0;}
@@ -593,7 +613,7 @@
     padding:12px 20px;
     border-radius:var(--radius);
     font-size:14px;
-    box-shadow:0 6px 24px rgba(0,0,0,.4);
+    box-shadow:0 6px 24px rgba(70,50,20,.25);
     z-index:50;
     max-width:90vw;
     text-align:center;
@@ -609,7 +629,7 @@
     margin-bottom:14px;
   }
   .winner-banner .big{
-    font-family:'Shippori Mincho',serif;
+    font-family:var(--f-brush);
     font-size:24px;
     font-weight:700;
     color:var(--accent);
@@ -695,7 +715,14 @@ const CONFIG_IS_PLACEHOLDER = FIREBASE_CONFIG.apiKey === "YOUR_API_KEY";
 /* =====================================================================
    定数
    ===================================================================== */
-const PLAYER_COLORS = ["#e8563e", "#4fa8d8", "#7ed9a8", "#e8c55a", "#c77dd1"];
+const PLAYER_COLORS = ["#1c1a17", "#f2efe8", "#b8352a", "#2f4f86", "#4f7a34"];   // 黒石・白石・朱・藍・若竹
+/* 石の上の文字の色（明るい石には墨、暗い石には白） */
+function stoneInk(c) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c || "");
+  if (!m) return "#f6efe2";
+  const [r, g, b] = [m[1], m[2], m[3]].map(h => parseInt(h, 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#1c1712" : "#f6efe2";
+}
 const MAX_PLAYERS = 5;
 const MIN_PLAYERS = 2;
 const BOARD_PRESETS = [{
@@ -994,7 +1021,7 @@ function applyPlace(room, pid, x, y, auto) {
   return true;
 }
 function freeColor(room) {
-  const used = new Set(namedPlayerIds(room).map(pid => room.players[pid].color));
+  const used = new Set(namedPlayerIds(room).map(pid => stoneColor(room.players[pid].color)));
   return PLAYER_COLORS.find(c => !used.has(c)) || PLAYER_COLORS[0];
 }
 async function createRoom(hostName, presetKey, maxPlayers, ruleset, timeLimit) {
@@ -2056,6 +2083,8 @@ function dangerColor(count, max) {
   const b = Math.round(90 - 28 * t);
   return `rgb(${r},${g},${b})`;
 }
+const OLD_COLOR_MAP = {"#e8563e": "#1c1a17", "#4fa8d8": "#f2efe8", "#7ed9a8": "#b8352a", "#e8c55a": "#2f4f86", "#c77dd1": "#4f7a34"};
+const stoneColor = c => OLD_COLOR_MAP[c] || c;
 function Board({
   radius,
   stones,
@@ -2164,22 +2193,33 @@ function Board({
         fill: dangerColor(heatCount, heatMax),
         opacity: heatCount > 0 ? 0.75 : 0.5
       }), s && /*#__PURE__*/React.createElement("circle", {
+        cx: px + 1.2,
+        cy: py + 2,
+        r: 13,
+        fill: "rgba(40,22,5,.35)",
+        style: { pointerEvents: "none" }
+      }), s && /*#__PURE__*/React.createElement("circle", {
         key: emphasised ? shapeKey : undefined,
         className: emphasised ? "point-pop" : undefined,
         cx: px,
         cy: py,
         r: 13,
-        fill: players[s.owner] && players[s.owner].active ? players[s.owner].color : "#3a4456",
-        stroke: isResultPoint ? (resultBad ? "var(--danger)" : "var(--safe)") : isHighlightPoint ? "var(--accent)" : selectedSet.has(s.seq) ? "var(--accent)" : "var(--bg)",
-        strokeWidth: emphasised || selectedSet.has(s.seq) ? 3.5 : 2,
-        opacity: players[s.owner] && players[s.owner].active ? 1 : 0.55
+        fill: stoneColor(players[s.owner] && players[s.owner].active ? players[s.owner].color : "#9a8f7c"),
+        stroke: isResultPoint ? (resultBad ? "var(--danger)" : "var(--safe)") : isHighlightPoint ? "var(--accent)" : selectedSet.has(s.seq) ? "var(--accent)" : "rgba(30,20,10,.45)",
+        strokeWidth: emphasised || selectedSet.has(s.seq) ? 3.5 : 0.8,
+        opacity: players[s.owner] && players[s.owner].active ? 1 : 0.6
+      }), s && /*#__PURE__*/React.createElement("circle", {
+        cx: px,
+        cy: py,
+        r: 12.4,
+        fill: "url(#stoneShine)",
+        style: { pointerEvents: "none" }
       }), s && showNumbers && /*#__PURE__*/React.createElement("text", {
         x: px,
         y: py + 4,
         textAnchor: "middle",
         fontSize: "11",
-        fontWeight: "600",
-        fill: "var(--bg)",
+        fill: stoneInk(stoneColor(players[s.owner] && players[s.owner].active ? players[s.owner].color : "#9a8f7c")),
         style: {
           pointerEvents: "none"
         }
@@ -2188,7 +2228,7 @@ function Board({
         y: py + 4,
         textAnchor: "middle",
         fontSize: "11",
-        fill: "var(--bg)"
+        fill: "#1c1712"
       }, "\xD7"), s && s.seq === lastStoneSeq && status === "playing" && /*#__PURE__*/React.createElement("circle", {
         className: "pulse-ring",
         cx: px,
@@ -2206,7 +2246,14 @@ function Board({
   return /*#__PURE__*/React.createElement("svg", {
     className: "board-svg",
     viewBox: `0 0 ${dim} ${dim}`
-  }, lines, preview && preview.type === "circle" && /*#__PURE__*/React.createElement("circle", {
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("radialGradient", {
+    id: "stoneShine",
+    cx: "36%",
+    cy: "30%",
+    r: "75%"
+  }, /*#__PURE__*/React.createElement("stop", { offset: "0%", stopColor: "#ffffff", stopOpacity: "0.55" }),
+     /*#__PURE__*/React.createElement("stop", { offset: "35%", stopColor: "#ffffff", stopOpacity: "0.08" }),
+     /*#__PURE__*/React.createElement("stop", { offset: "100%", stopColor: "#000000", stopOpacity: "0.28" }))), lines, preview && preview.type === "circle" && /*#__PURE__*/React.createElement("circle", {
     cx: preview.cx,
     cy: preview.cy,
     r: preview.r,
@@ -2330,8 +2377,8 @@ function HomeScreen({
   }, /*#__PURE__*/React.createElement("div", {
     className: "home-wrap"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "home-title"
-  }, "\u5171\u5186"), /*#__PURE__*/React.createElement("div", {
+ className: "home-title"
+  }, /*#__PURE__*/React.createElement("img", { src: "title.png", alt: "\u5171\u5186" })), /*#__PURE__*/React.createElement("div", {
     className: "home-tagline"
   }, "\u683C\u5B50\u70B9\u306B\u77F3\u3092\u7F6E\u304D\u5408\u3044\u30014\u3064\u306E\u77F3\u304C\u540C\u4E00\u5186\u5468\uFF08\u307E\u305F\u306F\u4E00\u76F4\u7DDA\uFF09\u306B\u4E57\u3063\u305F\u3089\u6307\u6458\u3057\u3066\u8131\u843D\u3055\u305B\u308B\u5BFE\u6226\u30B2\u30FC\u30E0\u3067\u3059\u3002"), mode === null && /*#__PURE__*/React.createElement("div", {
     className: "home-actions"
@@ -2700,7 +2747,7 @@ function LobbyScreen({
   }, /*#__PURE__*/React.createElement("span", {
     className: "dot",
     style: {
-      background: p.color
+      background: stoneColor(p.color)
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "player-name"
@@ -3446,7 +3493,7 @@ function GameScreen({
   }, /*#__PURE__*/React.createElement("span", {
     className: "dot",
     style: {
-      background: p.color
+      background: stoneColor(p.color)
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "player-name"
@@ -3799,7 +3846,7 @@ function LocalGameScreen({
   }, /*#__PURE__*/React.createElement("span", {
     className: "dot",
     style: {
-      background: p.color
+      background: stoneColor(p.color)
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "player-name"
@@ -4073,7 +4120,7 @@ function HotseatGameScreen({
   }, /*#__PURE__*/React.createElement("span", {
     className: "dot",
     style: {
-      background: p.color
+      background: stoneColor(p.color)
     }
   }), /*#__PURE__*/React.createElement("span", {
     className: "player-name"
