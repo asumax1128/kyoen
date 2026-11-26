@@ -434,6 +434,16 @@
     from{stroke-dashoffset:var(--circ);}
     to{stroke-dashoffset:0;}
   }
+  /* --- 中心と半径（振り返り用。円を描き終わる頃に薄くフェードイン） --- */
+  .center-guide{
+    opacity:0;
+    pointer-events:none;
+    animation:centerGuideIn .5s ease-out .9s forwards;
+  }
+  @keyframes centerGuideIn{
+    from{opacity:0;}
+    to{opacity:1;}
+  }
   .point-pop{
     transform-box:fill-box;
     transform-origin:center;
@@ -2115,7 +2125,8 @@ function Board({
   showNumbers,
   heatmap,
   highlightPoints,
-  missPoints
+  missPoints,
+  showCenter
 }) {
   const cell = 34;
   const pad = 26;
@@ -2157,6 +2168,30 @@ function Board({
   const circLen = resultShape && resultShape.type === "circle" ? 2 * Math.PI * resultShape.r : resultShape ? Math.hypot(resultShape.x2 - resultShape.x1, resultShape.y2 - resultShape.y1) : 0;
   // 同じ4点なら再アニメーションしないよう、key に座標を埋め込む
   const shapeKey = shapeSource ? shapeSource.map(p => p.x + "," + p.y).join("|") : "none";
+  // 中心と半径の表示（振り返り用・既定はオフ）。円のときだけ。直線には中心がないので何も足さない
+  const centerGuide = showCenter && resultShape && resultShape.type === "circle" ? /*#__PURE__*/React.createElement("g", {
+    key: "cg:" + shapeKey,
+    className: "center-guide"
+  }, shapeSource.map(p => {
+    const q = toPx(p.x, p.y);
+    return /*#__PURE__*/React.createElement("line", {
+      key: p.x + "," + p.y,
+      x1: resultShape.cx,
+      y1: resultShape.cy,
+      x2: q.px,
+      y2: q.py,
+      stroke: shapeColor,
+      strokeWidth: "1.2",
+      strokeDasharray: "3,3",
+      opacity: "0.55"
+    });
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: resultShape.cx,
+    cy: resultShape.cy,
+    r: 3.6,
+    fill: shapeColor,
+    opacity: "0.85"
+  })) : null;
   const lines = [];
   for (let i = -radius; i <= radius; i++) {
     const isAxis = i === 0;
@@ -2316,7 +2351,7 @@ function Board({
     style: {
       "--circ": circLen
     }
-  }), points);
+  }), centerGuide, points);
 }
 
 /* =====================================================================
@@ -3048,7 +3083,8 @@ function ReplayView({
     highlightPoints: violation ? violation.map(p => ({
       x: p.x,
       y: p.y
-    })) : null
+    })) : null,
+    showCenter: true
   })), /*#__PURE__*/React.createElement("div", {
     className: "stepper-bar"
   }, /*#__PURE__*/React.createElement("span", {
@@ -3152,7 +3188,8 @@ function MissedCirclesPanel({
     selected: [],
     resultCircle: null,
     showNumbers: false,
-    highlightPoints: current
+    highlightPoints: current,
+    showCenter: true
   })), /*#__PURE__*/React.createElement("div", {
     className: "stepper-bar"
   }, /*#__PURE__*/React.createElement("span", {
@@ -4397,7 +4434,9 @@ function PuzzleScreen({
     resultCircle: resultCircle,
     resultBad: resultBad,
     showNumbers: false,
-    highlightPoints: highlight
+    highlightPoints: highlight,
+    // 答え合わせの円に中心と半径を添える（「4点を見つける」問題のみ）
+    showCenter: phase === "answered" && puzzle.kind === "find"
   })), phase === "solving" && puzzle.kind === "find" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "mode-bar"
   }, /*#__PURE__*/React.createElement("button", {
