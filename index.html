@@ -129,6 +129,10 @@
     font-size:15px;
     max-width:38em;
   }
+  .home-tagline-sub{margin-top:6px;font-size:13px;}
+  .home-action-with-note{display:flex;flex-direction:column;align-items:center;}
+  .home-action-with-note .btn{width:100%;}
+  .home-action-note{margin-top:4px;font-size:11.5px;}
   .home-diagram{
     margin:36px 0;
   }
@@ -821,7 +825,17 @@ function saveDifficulty(difficulty) {
   localStorage.setItem("kyoen_difficulty", difficulty);
 }
 const DIFFICULTY_OPTIONS = [{ key: "easy", label: "簡単" }, { key: "normal", label: "普通" }, { key: "hard", label: "難しい" }];
-const RULESET_OPTIONS = [{ key: "major", label: "メジャールール" }, { key: "nanryo", label: "南稜ローカルルール" }];
+const RULESET_OPTIONS = [{ key: "major", label: "みつけたら脱落（メジャー）", desc: "直前の一手を含む4点だけを、次の石の前に指摘。正解で置いた人が脱落、不正解はおとがめなし。" }, { key: "nanryo", label: "みつけたら勝ち（南稜）", desc: "どの4点でも、自分の番でなくても指摘できます。正しければ指摘した人の勝ち、間違えれば脱落します。" }];
+// ルール選択の下に、選択中のルールの説明を表示する（ホームの3つのセットアップ共通）
+function rulesetDesc(key) {
+  const r = RULESET_OPTIONS.find(o => o.key === key);
+  return r ? /*#__PURE__*/React.createElement("div", {
+    className: "hint-text",
+    style: {
+      marginTop: 6
+    }
+  }, r.desc) : null;
+}
 const TIME_LIMIT_OPTIONS = [{ key: "none", label: "制限なし", seconds: null }, { key: "15", label: "15秒", seconds: 15 }, { key: "30", label: "30秒", seconds: 30 }, { key: "60", label: "60秒", seconds: 60 }];
 
 /* =====================================================================
@@ -2317,7 +2331,7 @@ function HomeScreen({
   const [name, setName] = useState(getSavedName());
   const [preset, setPreset] = useState("medium");
   const [maxPlayers, setMaxPlayers] = useState(4);
-  const [ruleset, setRuleset] = useState("major");
+  const [ruleset, setRuleset] = useState("nanryo");
   const [timeLimit, setTimeLimit] = useState("none");
   const [code, setCode] = useState(joinPrefill || "");
   const [error, setError] = useState("");
@@ -2328,14 +2342,14 @@ function HomeScreen({
   const [localPreset, setLocalPreset] = useState("medium");
   const [cpuCount, setCpuCount] = useState(1);
   const [difficulty, setDifficulty] = useState(getSavedDifficulty());
-  const [localRuleset, setLocalRuleset] = useState("major");
+  const [localRuleset, setLocalRuleset] = useState("nanryo");
   const [localTimeLimit, setLocalTimeLimit] = useState("none");
 
   // 友人と対戦（オフライン・同一画面）用のローカルステート
   const [hotseatCount, setHotseatCount] = useState(2);
   const [hotseatPreset, setHotseatPreset] = useState("medium");
   const [hotseatNames, setHotseatNames] = useState(["", "", "", "", ""]);
-  const [hotseatRuleset, setHotseatRuleset] = useState("major");
+  const [hotseatRuleset, setHotseatRuleset] = useState("nanryo");
   const [hotseatTimeLimit, setHotseatTimeLimit] = useState("none");
   function secondsOf(key) {
     const opt = TIME_LIMIT_OPTIONS.find(t => t.key === key);
@@ -2380,7 +2394,9 @@ function HomeScreen({
  className: "home-title"
   }, /*#__PURE__*/React.createElement("img", { src: "title.png", alt: "\u5171\u5186" })), /*#__PURE__*/React.createElement("div", {
     className: "home-tagline"
-  }, "\u683C\u5B50\u70B9\u306B\u77F3\u3092\u7F6E\u304D\u5408\u3044\u30014\u3064\u306E\u77F3\u304C\u540C\u4E00\u5186\u5468\uFF08\u307E\u305F\u306F\u4E00\u76F4\u7DDA\uFF09\u306B\u4E57\u3063\u305F\u3089\u6307\u6458\u3057\u3066\u8131\u843D\u3055\u305B\u308B\u5BFE\u6226\u30B2\u30FC\u30E0\u3067\u3059\u3002"), mode === null && /*#__PURE__*/React.createElement("div", {
+  }, "格子点に石を置き合い、同じ円の上に並んだ4つの石を見つけて指摘する対戦ゲームです。"), /*#__PURE__*/React.createElement("div", {
+    className: "home-tagline home-tagline-sub"
+  }, "4つの石が1つの円の上に並ぶことを『共円』と言います。まっすぐ並んだ4点も数えます。"), mode === null && /*#__PURE__*/React.createElement("div", {
     className: "home-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
@@ -2388,10 +2404,14 @@ function HomeScreen({
   }, "1\u4EBA\u3067\u7DF4\u7FD2\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\u30FBCPU\u5BFE\u6226\uFF09"), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => setMode("hotseat")
-  }, "\u53CB\u4EBA\u3068\u5BFE\u6226\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\u30FB\u540C\u3058\u753B\u9762\u3067\uFF09"), /*#__PURE__*/React.createElement("button", {
+  }, "\u53CB\u4EBA\u3068\u5BFE\u6226\u3059\u308B\uFF08\u30AA\u30D5\u30E9\u30A4\u30F3\u30FB\u540C\u3058\u753B\u9762\u3067\uFF09"), /*#__PURE__*/React.createElement("div", {
+    className: "home-action-with-note"
+  }, /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => { Sound.unlock(); onStartPuzzle(); }
-  }, "\u554F\u984C\u30E2\u30FC\u30C9\uFF08\u8A70\u3081\u5171\u5186\uFF09"), /*#__PURE__*/React.createElement("button", {
+  }, "\u554F\u984C\u30E2\u30FC\u30C9\uFF08\u8A70\u3081\u5171\u5186\uFF09"), /*#__PURE__*/React.createElement("div", {
+    className: "hint-text home-action-note"
+  }, "初めてなら、まずここで4点を探す練習から")), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     disabled: !configReady,
     onClick: () => setMode("create")
@@ -2453,7 +2473,7 @@ function HomeScreen({
   }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.key,
     value: r.key
-  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+  }, r.label))), rulesetDesc(localRuleset)), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF08\u3042\u306A\u305F\u306E\u756A\u306E\u307F\uFF09"), /*#__PURE__*/React.createElement("select", {
     value: localTimeLimit,
@@ -2531,7 +2551,7 @@ function HomeScreen({
   }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.key,
     value: r.key
-  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+  }, r.label))), rulesetDesc(hotseatRuleset)), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF081\u624B\u3042\u305F\u308A\uFF09"), /*#__PURE__*/React.createElement("select", {
     value: hotseatTimeLimit,
@@ -2539,12 +2559,7 @@ function HomeScreen({
   }, TIME_LIMIT_OPTIONS.map(t => /*#__PURE__*/React.createElement("option", {
     key: t.key,
     value: t.key
-  }, t.label)))), hotseatRuleset === "nanryo" && /*#__PURE__*/React.createElement("div", {
-    className: "hint-text",
-    style: {
-      marginBottom: 12
-    }
-  }, "\u5357\u7A1C\u30ED\u30FC\u30AB\u30EB\u30EB\u30FC\u30EB\uFF1A\u76F4\u524D\u306E\u4E00\u624B\u306B\u9650\u3089\u305A\u3001\u76E4\u4E0A\u306E\u3069\u306E4\u70B9\u3067\u3082\u30FB\u8AB0\u3067\u3082\u30FB\u81EA\u5206\u306E\u756A\u3067\u306A\u304F\u3066\u3082\u6307\u6458\u3067\u304D\u307E\u3059\u3002\u6307\u6458\u304C\u6210\u7ACB\u3059\u308B\u3068\u6307\u6458\u3057\u305F\u4EBA\u304C\u305D\u306E\u5834\u3067\u52DD\u5229\u3001\u5916\u308C\u305F\u5834\u5408\u306F\u6307\u6458\u3057\u305F\u4EBA\u304C\u8131\u843D\u3057\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("button", {
+  }, t.label)))), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-block",
     onClick: () => {
       const preset = BOARD_PRESETS.find(p => p.key === hotseatPreset) || BOARD_PRESETS[1];
@@ -2598,7 +2613,7 @@ function HomeScreen({
   }, RULESET_OPTIONS.map(r => /*#__PURE__*/React.createElement("option", {
     key: r.key,
     value: r.key
-  }, r.label)))), /*#__PURE__*/React.createElement("div", {
+  }, r.label))), rulesetDesc(ruleset)), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "\u6301\u3061\u6642\u9593\uFF081\u624B\u3042\u305F\u308A\uFF09"), /*#__PURE__*/React.createElement("select", {
     value: timeLimit,
