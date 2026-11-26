@@ -2114,7 +2114,8 @@ function Board({
   resultBad,
   showNumbers,
   heatmap,
-  highlightPoints
+  highlightPoints,
+  missPoints
 }) {
   const cell = 34;
   const pad = 26;
@@ -2128,6 +2129,8 @@ function Board({
   const selectedSet = new Set(selected.map(s => s.seq));
   const resultSet = resultCircle ? new Set(resultCircle.map(p => p.x + "_" + p.y)) : null;
   const highlightSet = highlightPoints ? new Set(highlightPoints.map(p => p.x + "_" + p.y)) : null;
+  // 不成立だった指摘の4点（円は描かず、赤の破線で縁取る）
+  const missSet = missPoints ? new Set(missPoints.map(p => p.x + "_" + p.y)) : null;
   const heatLookup = {};
   let heatMax = 1;
   if (heatmap) {
@@ -2191,6 +2194,7 @@ function Board({
       const clickable = mode === "place" ? !s && canPlace : mode === "judge" || mode === "accuse" ? !!s : mode === "puzzle-pick" ? !s : false;
       const isResultPoint = resultSet && resultSet.has(x + "_" + y);
       const isHighlightPoint = highlightSet && highlightSet.has(x + "_" + y);
+      const isMissPoint = !!(s && missSet && missSet.has(x + "_" + y));
       const heatCount = heatLookup[x + "_" + y];
       const emphasised = isResultPoint || isHighlightPoint;
       points.push(/*#__PURE__*/React.createElement("g", {
@@ -2219,8 +2223,9 @@ function Board({
         cy: py,
         r: 13,
         fill: stoneColor(players[s.owner] && players[s.owner].active ? players[s.owner].color : "#9a8f7c"),
-        stroke: isResultPoint ? (resultBad ? "var(--danger)" : "var(--safe)") : isHighlightPoint ? "var(--accent)" : selectedSet.has(s.seq) ? "var(--accent)" : "rgba(30,20,10,.45)",
-        strokeWidth: emphasised || selectedSet.has(s.seq) ? 3.5 : 0.8,
+        stroke: isResultPoint ? (resultBad ? "var(--danger)" : "var(--safe)") : isHighlightPoint ? "var(--accent)" : isMissPoint ? "var(--danger)" : selectedSet.has(s.seq) ? "var(--accent)" : "rgba(30,20,10,.45)",
+        strokeWidth: emphasised || isMissPoint || selectedSet.has(s.seq) ? 3.5 : 0.8,
+        strokeDasharray: isMissPoint && !emphasised ? "4,3" : undefined,
         opacity: players[s.owner] && players[s.owner].active ? 1 : 0.6
       }), s && /*#__PURE__*/React.createElement("circle", {
         cx: px,
@@ -2891,19 +2896,81 @@ function UrgentOverlay({
 /* =====================================================================
    UI: 指摘結果の派手な演出（正解／不正解を大きく一瞬表示）
    ===================================================================== */
+// 成立時は盤面の円（draw-circle・1秒）を見せてからフラッシュを出す
+const FLASH_DELAY_MS = 1000; // 成立イベントからフラッシュ表示までの遅延
+const FLASH_HIT_MS = 1200; // 成立時のフラッシュ表示時間
+const FLASH_MISS_MS = 1800; // 不成立時のフラッシュ表示時間（従来どおり）
+// フラッシュの表示管理。遅延中のタイマーは1本だけ持ち、次の結果が来たら破棄する。
+// 不成立時は指摘した4点（missPts）をフラッシュが消えるまで盤面に残す。
+function useResultFlash(stoneCount) {
+  const [flash, setFlash] = useState(null); // { id, result, sub, duration }
+  const [missPts, setMissPts] = useState(null);
+  const timerRef = useRef(null);
+  const idRef = useRef(0);
+  function cancelPending() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+  useEffect(() => cancelPending, []);
+  // 次の着手があったら、不成立の4点は残さない
+  useEffect(() => {
+    setMissPts(null);
+  }, [stoneCount]);
+  // 成立（hit / caught）：約1秒後に短めのフラッシュ
+  function showSettled(result, sub) {
+    cancelPending();
+    const id = ++idRef.current;
+    setFlash(null);
+    setMissPts(null);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      if (idRef.current !== id) return;
+      setFlash({ id, result, sub: sub || "", duration: FLASH_HIT_MS });
+    }, FLASH_DELAY_MS);
+  }
+  // 即時表示（不成立など）。pts を渡すとフラッシュ終了まで盤面に残す
+  function showNow(result, sub, pts) {
+    cancelPending();
+    const id = ++idRef.current;
+    setMissPts(pts && pts.length ? pts : null);
+    setFlash({ id, result, sub: sub || "", duration: FLASH_MISS_MS });
+  }
+  function done(id) {
+    if (idRef.current !== id) return;
+    setFlash(null);
+    setMissPts(null);
+  }
+  return { flash, missPts, showSettled, showNow, done, cancelPending };
+}
+function flashProps(f) {
+  return {
+    key: f.flash ? f.flash.id : "none",
+    result: f.flash ? f.flash.result : null,
+    sub: f.flash ? f.flash.sub : "",
+    duration: f.flash ? f.flash.duration : undefined,
+    onDone: () => f.flash && f.done(f.flash.id)
+  };
+}
 function ResultFlash({
   result,
   sub,
+  duration,
   onDone
 }) {
+  const ms = duration || FLASH_MISS_MS;
   useEffect(() => {
     if (!result) return;
-    const t = setTimeout(() => onDone(), 1800);
+    const t = setTimeout(() => onDone(), ms);
     return () => clearTimeout(t);
   }, [result]);
   if (!result) return null;
   return /*#__PURE__*/React.createElement("div", {
-    className: "result-flash-overlay"
+    className: "result-flash-overlay",
+    style: {
+      animationDuration: ms + "ms"
+    }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -3151,8 +3218,7 @@ function GameScreen({
   const [toast, setToast] = useState(null);
   const [resultCircle, setResultCircle] = useState(null);
   const [resultBad, setResultBad] = useState(false);
-  const [resultFlash, setResultFlash] = useState(null);
-  const [flashSub, setFlashSub] = useState("");
+  const fx = useResultFlash((room.stones || []).length);
   const [showNumbers, setShowNumbers] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -3262,14 +3328,12 @@ function GameScreen({
       setResultCircle(pts);
       if (ev.targetId === myId) {
         setResultBad(true);
-        setResultFlash("caught");
-        setFlashSub(`${ev.accuserName} さんに指摘されました`);
+        fx.showSettled("caught", `${ev.accuserName} さんに指摘されました`);
         setToast("共円を指摘されました。あなたは脱落です…");
         Sound.wrong();
       } else {
         setResultBad(false);
-        setResultFlash("hit");
-        setFlashSub(byMe ? "" : `${ev.accuserName} さんの指摘`);
+        fx.showSettled("hit", byMe ? "" : `${ev.accuserName} さんの指摘`);
         setToast(byMe ? `指摘成立！${ev.targetName} さんが脱落します` : `${ev.accuserName} さんの指摘成立！${ev.targetName} さんが脱落`);
         Sound.correct();
       }
@@ -3277,20 +3341,17 @@ function GameScreen({
       setResultCircle(pts);
       setResultBad(false);
       if (byMe) {
-        setResultFlash("hit");
-        setFlashSub("あなたの勝利！");
+        fx.showSettled("hit", "あなたの勝利！");
         setToast("指摘成立！あなたの勝利です。");
         Sound.correct();
       } else {
-        setResultFlash("caught");
-        setFlashSub(`${ev.accuserName} さんが見つけました`);
+        fx.showSettled("caught", `${ev.accuserName} さんが見つけました`);
         setToast(`${ev.accuserName} さんの指摘成立。${ev.accuserName} さんの勝利です`);
         Sound.wrong();
       }
     } else {
       setResultCircle(null);
-      setResultFlash("miss");
-      setFlashSub(byMe ? "" : `${ev.accuserName} さんの指摘`);
+      fx.showNow("miss", byMe ? "" : `${ev.accuserName} さんの指摘`, pts);
       if (ev.kind === "nanryo_miss") setToast(byMe ? "指摘は不成立でした。あなたの脱落です。" : `${ev.accuserName} さんの指摘は不成立。${ev.accuserName} さんが脱落`);else setToast(byMe ? "指摘は不成立でした。共円ではありません。" : `${ev.accuserName} さんの指摘は不成立でした`);
       Sound.wrong();
     }
@@ -3466,6 +3527,7 @@ function GameScreen({
     selected: selected,
     resultCircle: resultCircle,
     resultBad: resultBad,
+    missPoints: fx.missPts,
     showNumbers: showNumbers
   })), /*#__PURE__*/React.createElement("div", {
     className: "mode-bar"
@@ -3540,11 +3602,7 @@ function GameScreen({
     className: "log-item"
   }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), /*#__PURE__*/React.createElement(UrgentOverlay, {
     countdown: myTurn && !accusing ? countdown : null
-  }), /*#__PURE__*/React.createElement(ResultFlash, {
-    result: resultFlash,
-    sub: flashSub,
-    onDone: () => setResultFlash(null)
-  }), toast && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(ResultFlash, flashProps(fx)), toast && /*#__PURE__*/React.createElement("div", {
     className: "toast"
   }, toast));
 }
@@ -3563,7 +3621,7 @@ function LocalGameScreen({
   const [cpuThinking, setCpuThinking] = useState(false);
   const [resultCircle, setResultCircle] = useState(null);
   const [resultBad, setResultBad] = useState(false);
-  const [resultFlash, setResultFlash] = useState(null);
+  const fx = useResultFlash((state.stones || []).length);
   const [showNumbers, setShowNumbers] = useState(false);
   const [heatOn, setHeatOn] = useState(false);
   const [replaying, setReplaying] = useState(false);
@@ -3620,7 +3678,7 @@ function LocalGameScreen({
         setResultCircle(lastLog.pts.map(p => ({ x: p[0], y: p[1] })));
       }
       setResultBad(true);
-      setResultFlash("caught");
+      fx.showSettled("caught");
       Sound.wrong();
     }
   }
@@ -3671,11 +3729,11 @@ function LocalGameScreen({
       if (result === "hit") {
         setToast("指摘成立！あなたの勝利です。");
         setResultCircle(pts);
-        setResultFlash("hit");
+        fx.showSettled("hit");
         Sound.correct();
       } else if (result === "miss") {
         setToast("指摘は不成立でした。あなたの脱落です。");
-        setResultFlash("miss");
+        fx.showNow("miss", "", pts);
         Sound.wrong();
       } else setToast("指摘は受理されませんでした");
       setMode("place");
@@ -3690,11 +3748,11 @@ function LocalGameScreen({
     if (result === "hit") {
       setToast("指摘成立！共円（または共線）でした。");
       setResultCircle(pts);
-      setResultFlash("hit");
+      fx.showSettled("hit");
       Sound.correct();
     } else if (result === "miss") {
       setToast("指摘は不成立でした。共円ではありません。");
-      setResultFlash("miss");
+      fx.showNow("miss", "", pts);
       Sound.wrong();
     } else setToast("指摘は受理されませんでした");
     setMode("place");
@@ -3816,7 +3874,8 @@ function LocalGameScreen({
     resultCircle: resultCircle,
     resultBad: resultBad,
     showNumbers: showNumbers,
-    heatmap: heatmap
+    heatmap: heatmap,
+    missPoints: fx.missPts
   })), heatOn && status === "playing" && /*#__PURE__*/React.createElement(HeatLegend, null), /*#__PURE__*/React.createElement("div", {
     className: "mode-bar"
   }, mode === "place" && /*#__PURE__*/React.createElement("button", {
@@ -3880,10 +3939,7 @@ function LocalGameScreen({
     className: "log-item"
   }, "\u307E\u3060\u7740\u624B\u306F\u3042\u308A\u307E\u305B\u3093"))))), /*#__PURE__*/React.createElement(UrgentOverlay, {
     countdown: turnCountdown
-  }), /*#__PURE__*/React.createElement(ResultFlash, {
-    result: resultFlash,
-    onDone: () => setResultFlash(null)
-  }), toast && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(ResultFlash, flashProps(fx)), toast && /*#__PURE__*/React.createElement("div", {
     className: "toast"
   }, toast));
 }
@@ -3902,7 +3958,7 @@ function HotseatGameScreen({
   const [accuserPid, setAccuserPid] = useState(null);
   const [toast, setToast] = useState(null);
   const [resultCircle, setResultCircle] = useState(null);
-  const [resultFlash, setResultFlash] = useState(null);
+  const fx = useResultFlash((state.stones || []).length);
   const [showNumbers, setShowNumbers] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const stones = state.stones || [];
@@ -3979,11 +4035,11 @@ function HotseatGameScreen({
       if (result === "hit") {
         setToast(`${players[accuserPid] ? players[accuserPid].name : ""} さんの勝利！`);
         setResultCircle(pts);
-        setResultFlash("hit");
+        fx.showSettled("hit");
         Sound.correct();
       } else if (result === "miss") {
         setToast(`指摘は不成立でした。${players[accuserPid] ? players[accuserPid].name : ""} さんの脱落です。`);
-        setResultFlash("miss");
+        fx.showNow("miss", "", pts);
         Sound.wrong();
       } else setToast("指摘は受理されませんでした");
       setMode("place");
@@ -3999,11 +4055,11 @@ function HotseatGameScreen({
     if (result === "hit") {
       setToast("指摘成立！共円（または共線）でした。");
       setResultCircle(pts);
-      setResultFlash("hit");
+      fx.showSettled("hit");
       Sound.correct();
     } else if (result === "miss") {
       setToast("指摘は不成立でした。共円ではありません。");
-      setResultFlash("miss");
+      fx.showNow("miss", "", pts);
       Sound.wrong();
     } else setToast("指摘は受理されませんでした");
     setMode("place");
@@ -4093,6 +4149,7 @@ function HotseatGameScreen({
     mode: mode,
     selected: selected,
     resultCircle: resultCircle,
+    missPoints: fx.missPts,
     showNumbers: showNumbers
   })), /*#__PURE__*/React.createElement("div", {
     className: "mode-bar"
@@ -4172,10 +4229,7 @@ function HotseatGameScreen({
     onClick: backToPlace
   }, "\u3084\u3081\u308B"))), /*#__PURE__*/React.createElement(UrgentOverlay, {
     countdown: turnCountdown
-  }), /*#__PURE__*/React.createElement(ResultFlash, {
-    result: resultFlash,
-    onDone: () => setResultFlash(null)
-  }), toast && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(ResultFlash, flashProps(fx)), toast && /*#__PURE__*/React.createElement("div", {
     className: "toast"
   }, toast));
 }
@@ -4194,7 +4248,7 @@ function PuzzleScreen({
   const [selected, setSelected] = useState([]);
   const [chosenCell, setChosenCell] = useState(null);
   const [correct, setCorrect] = useState(false);
-  const [flash, setFlash] = useState(null);
+  const fx = useResultFlash(0);
   const [score, setScore] = useState({
     ok: 0,
     total: 0
@@ -4209,6 +4263,7 @@ function PuzzleScreen({
     }
   };
   function nextPuzzle(lv) {
+    fx.cancelPending(); // 遅延中の「正解！！」を次の問題に持ち越さない
     setPuzzle(generatePuzzle(lv || level));
     setPhase("solving");
     setSelected([]);
@@ -4225,7 +4280,8 @@ function PuzzleScreen({
       ok: s.ok + (ok ? 1 : 0),
       total: s.total + 1
     }));
-    setFlash(ok ? "hit" : "miss");
+    // 正解は円を描き終えてからフラッシュ。不正解は従来どおり即時
+    if (ok) fx.showSettled("hit");else fx.showNow("miss");
     if (ok) Sound.correct();else Sound.wrong();
   }
   function answerSafe(x, y) {
@@ -4243,7 +4299,8 @@ function PuzzleScreen({
       ok: s.ok + (ok ? 1 : 0),
       total: s.total + 1
     }));
-    setFlash(ok ? "hit" : "miss");
+    // 「安全なマス」問題は正解でも円を描かないので、従来どおり即時
+    fx.showNow(ok ? "hit" : "miss");
     if (ok) Sound.correct();else Sound.wrong();
   }
   function onPointClick(x, y, stone) {
@@ -4417,10 +4474,7 @@ function PuzzleScreen({
     className: "puzzle-score"
   }, score.ok), " / \u6311\u6226 ", /*#__PURE__*/React.createElement("span", {
     className: "puzzle-score"
-  }, score.total), score.total > 0 && `（正答率 ${Math.round(score.ok / score.total * 100)}%）`)))), /*#__PURE__*/React.createElement(ResultFlash, {
-    result: flash,
-    onDone: () => setFlash(null)
-  }));
+  }, score.total), score.total > 0 && `（正答率 ${Math.round(score.ok / score.total * 100)}%）`)))), /*#__PURE__*/React.createElement(ResultFlash, flashProps(fx)));
 }
 
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
