@@ -825,7 +825,7 @@ function saveDifficulty(difficulty) {
   localStorage.setItem("kyoen_difficulty", difficulty);
 }
 const DIFFICULTY_OPTIONS = [{ key: "easy", label: "簡単" }, { key: "normal", label: "普通" }, { key: "hard", label: "難しい" }];
-const RULESET_OPTIONS = [{ key: "major", label: "みつけたら脱落（メジャー）", desc: "対象は直前の一手を含む4点だけ。次の石が置かれる前に指摘でき、正しければ置いた人が脱落。間違いはおとがめなし。" }, { key: "nanryo", label: "みつけたら勝ち（南稜）", desc: "どの4点でも、自分の番でなくても指摘できます。正しければ指摘した人の勝ち、間違えれば脱落します。" }];
+const RULESET_OPTIONS = [{ key: "major", label: "みつけたら脱落（メジャー）", desc: "直前の一手を含む4点だけを、次の石の前に指摘。正解で置いた人が脱落、不正解はおとがめなし。" }, { key: "nanryo", label: "みつけたら勝ち（南稜）", desc: "どの4点でも、自分の番でなくても指摘できます。正しければ指摘した人の勝ち、間違えれば脱落します。" }];
 // ルール選択の下に、選択中のルールの説明を表示する（ホームの3つのセットアップ共通）
 function rulesetDesc(key) {
   const r = RULESET_OPTIONS.find(o => o.key === key);
